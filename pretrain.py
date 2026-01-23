@@ -151,7 +151,7 @@ def evaluate(model, test_loader, device):
 def main():
     parser = argparse.ArgumentParser(description='Pretrain on CIFAR-100 Meta-Train Classes')
 
-    parser.add_argument('--data_root', type=str, default='./cifar100_data')
+    parser.add_argument('--data_root', type=str, default='/mnt/data/lev_data')
     parser.add_argument('--model', type=str, default='conv4',
                         choices=['conv4', 'resnet12'])
     parser.add_argument('--hidden_dim', type=int, default=64,

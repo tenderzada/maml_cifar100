@@ -82,7 +82,7 @@ def main():
 
     parser.add_argument('--checkpoint', type=str, required=True,
                         help='模型checkpoint路径')
-    parser.add_argument('--data_root', type=str, default='./cifar100_data',
+    parser.add_argument('--data_root', type=str, default='/mnt/data/lev_data',
                         help='CIFAR-100数据路径')
     parser.add_argument('--n_way', type=int, default=5,
                         help='N-way classification')

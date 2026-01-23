@@ -270,7 +270,7 @@ def compute_confidence_interval(accuracies, confidence=0.95):
 def main():
     parser = argparse.ArgumentParser(description='Baseline methods for CIFAR-100 Few-Shot')
 
-    parser.add_argument('--data_root', type=str, default='./cifar100_data')
+    parser.add_argument('--data_root', type=str, default='/mnt/data/lev_data')
     parser.add_argument('--n_way', type=int, default=5)
     parser.add_argument('--k_shot', type=int, default=1)
     parser.add_argument('--k_query', type=int, default=15)
