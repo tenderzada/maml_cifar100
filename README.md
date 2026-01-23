@@ -1,159 +1,138 @@
-# MAML on CIFAR-100 Few-Shot Learning
+# MAML for Few-Shot Learning
 
-本项目实现了 **MAML (Model-Agnostic Meta-Learning)** 算法，用于在 CIFAR-100 数据集上进行 few-shot learning 实验。
+本项目实现了 **MAML (Model-Agnostic Meta-Learning)** 算法，支持两种数据集:
+1. **CIFAR-100** - 图像分类
+2. **轴承故障诊断** - 时序信号分类
 
 ## 项目结构
 
 ```
 maml_cifar100/
 ├── data/
-│   ├── __init__.py
-│   └── cifar100_fewshot.py    # CIFAR-100 few-shot数据加载器
+│   ├── cifar100_fewshot.py    # CIFAR-100 few-shot数据加载器
+│   ├── bearing_dataset.py     # 轴承数据集原始加载器
+│   └── bearing_fewshot.py     # 轴承数据集few-shot加载器
 ├── models/
-│   ├── __init__.py
-│   ├── conv4.py               # 4层CNN backbone
-│   ├── resnet.py              # ResNet12 backbone (更大容量)
-│   └── maml.py                # MAML算法实现
+│   ├── conv4.py               # 2D CNN (图像)
+│   ├── resnet.py              # ResNet12 (图像)
+│   ├── conv1d.py              # 1D CNN (时序信号)
+│   └── maml.py                # MAML算法
 ├── utils/
-│   ├── __init__.py
 │   └── visualization.py       # 可视化工具
-├── configs/                    # 配置文件目录
-├── checkpoints/               # 模型保存目录
-├── logs/                      # 训练日志目录
-├── results/                   # 评估结果目录
-├── train.py                   # MAML训练脚本
-├── pretrain.py                # 预训练脚本 (用于Transfer Learning对比)
+├── train.py                   # CIFAR-100训练
+├── train_bearing.py           # 轴承数据训练
+├── pretrain.py                # 预训练 (Transfer Learning)
 ├── evaluate.py                # 评估脚本
 ├── baseline.py                # Baseline方法
-├── compare_methods.py         # 综合对比脚本
-├── run_experiments.sh         # 实验运行脚本
-├── requirements.txt           # 依赖包
-└── README.md
+├── run_experiments.sh         # CIFAR-100实验脚本
+├── run_bearing_experiments.sh # 轴承实验脚本
+└── requirements.txt
 ```
+
+## 数据集
+
+### CIFAR-100 (图像)
+- 数据形状: `[3, 32, 32]`
+- 类别数: 100 (64 train / 16 val / 20 test)
+
+### 轴承故障诊断 (时序信号)
+- 数据形状: `[9, 2048]` (9通道，2048时间步)
+- 类别数: 64 (40 train / 12 val / 12 test)
+- 样本数: ~40k训练 + ~10k测试
 
 ## 模型架构
 
-### 1. Conv4 (默认)
-- 4层卷积网络，每层包含 Conv -> BN -> ReLU -> MaxPool
-- 可调节 `hidden_dim` 参数 (32/64/128) 控制模型容量
-- 参数量: ~100K (hidden_dim=64) / ~400K (hidden_dim=128)
-
-### 2. ResNet12 (更大容量)
-- 4个残差块，每块包含3个卷积层
-- 可配置通道数: `64,128,256,512` (默认) 或 `64,160,320,640` (大型)
-- 参数量: ~8M (默认配置)
-- 适合数据量充足或需要更强表达能力的场景
-
-## 对比方法
-
-| 方法 | 描述 |
-|------|------|
-| **MAML** | 学习易于适应的初始化参数 |
-| **FOMAML** | MAML的一阶近似，训练更快 |
-| Random+Finetune | 随机初始化后直接finetune |
-| Transfer Learning | 预训练后finetune (head/full) |
-| ProtoNet | 基于原型的度量学习 |
-| ProtoNet (Pretrained) | 使用预训练特征的ProtoNet |
+| 模型 | 数据类型 | 输入形状 | 参数量 |
+|------|----------|----------|--------|
+| Conv4 | 图像 | [3, 32, 32] | ~100K-400K |
+| ResNet12 | 图像 | [3, 32, 32] | ~8M |
+| Conv1D4 | 时序 | [9, 2048] | ~50K-200K |
+| Conv1D6 | 时序 | [9, 2048] | ~150K-600K |
 
 ## 快速开始
 
-### 1. 环境配置
+### 环境配置
 
 ```bash
-conda create -n maml python=3.10
-conda activate maml
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 pip install -r requirements.txt
 ```
 
-### 2. 运行完整实验
+### CIFAR-100 实验
 
 ```bash
-chmod +x run_experiments.sh
+# 5-way 1-shot MAML
+python train.py --model conv4 --hidden_dim 128 --n_way 5 --k_shot 1
+
+# 5-way 5-shot MAML
+python train.py --model conv4 --hidden_dim 128 --n_way 5 --k_shot 5
+
+# FOMAML (一阶近似)
+python train.py --model conv4 --hidden_dim 128 --first_order
+
+# 运行完整实验
 ./run_experiments.sh
 ```
 
-### 3. 单独训练
+### 轴承故障诊断实验
 
 ```bash
-# Conv4 (hidden_dim=64) - 基础配置
-python train.py --model conv4 --hidden_dim 64 --n_way 5 --k_shot 1
+# 5-way 1-shot MAML
+python train_bearing.py --model conv1d4 --hidden_dim 64 --n_way 5 --k_shot 1
 
-# Conv4 (hidden_dim=128) - 更大模型，减少欠拟合
-python train.py --model conv4 --hidden_dim 128 --n_way 5 --k_shot 1
+# 5-way 5-shot MAML
+python train_bearing.py --model conv1d4 --hidden_dim 128 --n_way 5 --k_shot 5
 
-# 5-way 5-shot
-python train.py --model conv4 --hidden_dim 128 --n_way 5 --k_shot 5
+# 使用更深的网络
+python train_bearing.py --model conv1d6 --hidden_dim 64 --n_way 5 --k_shot 1
 
-# FOMAML (一阶近似，训练更快)
-python train.py --model conv4 --hidden_dim 128 --first_order
-```
-
-### 4. Transfer Learning对比
-
-```bash
-# 第一步: 预训练
-python pretrain.py --model conv4 --hidden_dim 128 --epochs 100
-
-# 第二步: 评估所有baseline (包含Transfer Learning)
-python baseline.py \
-    --pretrained_checkpoint checkpoints/pretrain_conv4_xxx_best.pth \
-    --hidden_dim 128 \
-    --method all
+# 运行完整实验
+./run_bearing_experiments.sh
 ```
 
 ## 主要参数
 
-### 训练参数 (train.py)
-
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--model` | conv4 | 模型架构: conv4 / resnet12 |
-| `--hidden_dim` | 64 | Conv4隐藏层维度 (32/64/128) |
-| `--n_way` | 5 | N-way 分类 |
-| `--k_shot` | 1 | 每类样本数 (support set) |
+| `--model` | conv4/conv1d4 | 模型架构 |
+| `--hidden_dim` | 64 | 隐藏层维度 |
+| `--n_way` | 5 | N-way分类 |
+| `--k_shot` | 1 | 每类样本数 |
 | `--inner_lr` | 0.01 | 内层学习率 |
 | `--outer_lr` | 0.001 | 外层学习率 |
 | `--inner_steps` | 5 | 内层更新步数 |
-| `--first_order` | False | 使用一阶近似 (FOMAML) |
+| `--first_order` | False | 使用FOMAML |
 | `--epochs` | 100 | 训练轮数 |
 
-### Baseline参数 (baseline.py)
+## 数据路径配置
 
-| 参数 | 说明 |
-|------|------|
-| `--method` | all / random_finetune / protonet / transfer_head / transfer_full |
-| `--pretrained_checkpoint` | 预训练模型路径 (Transfer Learning必需) |
-| `--hidden_dim` | 模型隐藏层维度 (需与预训练模型匹配) |
+默认数据路径: `/mnt/data/lev_data/`
 
-## 预期结果
+- CIFAR-100: 自动下载到指定目录
+- 轴承数据: 需要预先放置 `bearing_data.pkl`
 
-CIFAR-100 few-shot learning 参考准确率:
+```bash
+# 修改数据路径
+python train.py --data_root /your/path/to/data
+python train_bearing.py --data_file /your/path/to/bearing_data.pkl
+```
 
-| 方法 | 5-way 1-shot | 5-way 5-shot |
-|------|--------------|--------------|
-| Random+Finetune | ~30% | ~45% |
-| ProtoNet (Random) | ~35% | ~50% |
-| Transfer (Head) | ~42% | ~58% |
-| Transfer (Full) | ~45% | ~62% |
-| FOMAML | ~48% | ~63% |
-| **MAML** | **~50%** | **~65%** |
-
-*注: 使用 hidden_dim=128 的结果，实际结果可能因随机种子略有不同*
-
-## 可视化输出
+## 输出文件
 
 训练完成后自动生成:
 
-1. **`logs/*_learning_curves.png`**: 训练/验证曲线
-   - Loss曲线 (左)
-   - Accuracy曲线 (右)
+```
+checkpoints/
+├── *_best.pth              # 最佳模型
+└── *_epoch*.pth            # 定期保存
 
-2. **`logs/*_test_distribution.png`**: 测试准确率分布
-   - 直方图 (左)
-   - 箱线图 (右)
-
-3. **`results/*_comparison.png`**: 方法对比柱状图
+logs/
+├── *_config.json           # 配置文件
+├── *_log.txt               # 训练日志
+├── *_history.json          # 训练历史
+├── *_learning_curves.png   # 学习曲线
+└── *_test_distribution.png # 测试分布
+```
 
 ## 参考文献
 
