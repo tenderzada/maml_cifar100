@@ -37,7 +37,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='MAML for Bearing Fault Diagnosis')
 
     # 数据参数
-    parser.add_argument('--data_file', type=str, default='/mnt/data/lev_data/bearing_data.pkl',
+    parser.add_argument('--data_file', type=str, default='/mnt/data/scutfd/bearing_data.pkl',
                         help='轴承数据文件路径')
     parser.add_argument('--n_way', type=int, default=5,
                         help='N-way classification')
