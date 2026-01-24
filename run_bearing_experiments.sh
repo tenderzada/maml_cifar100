@@ -81,32 +81,32 @@ echo "=========================================="
 # ========================================
 
 # 实验6: 带Dropout的MAML
-echo ""
-echo "[Exp 6] 5-way 1-shot MAML with Dropout (Conv1D4-128)"
-python train_bearing.py \
-    --model conv1d4 \
-    --hidden_dim 128 \
-    --n_way 5 \
-    --k_shot 1 \
-    --epochs 100 \
-    --inner_lr 0.01 \
-    --outer_lr 0.001 \
-    --inner_steps 5 \
-    --drop_rate 0.2
+# echo ""
+# echo "[Exp 6] 5-way 1-shot MAML with Dropout (Conv1D4-128)"
+# python train_bearing.py \
+#     --model conv1d4 \
+#     --hidden_dim 128 \
+#     --n_way 5 \
+#     --k_shot 1 \
+#     --epochs 100 \
+#     --inner_lr 0.01 \
+#     --outer_lr 0.001 \
+#     --inner_steps 5 \
+#     --drop_rate 0.2
 
 # 实验7: 带强数据增强的MAML
-echo ""
-echo "[Exp 7] 5-way 1-shot MAML with Strong Augmentation (Conv1D4-128)"
-python train_bearing.py \
-    --model conv1d4 \
-    --hidden_dim 128 \
-    --n_way 5 \
-    --k_shot 1 \
-    --epochs 100 \
-    --inner_lr 0.01 \
-    --outer_lr 0.001 \
-    --inner_steps 5 \
-    --strong_augment
+# echo ""
+# echo "[Exp 7] 5-way 1-shot MAML with Strong Augmentation (Conv1D4-128)"
+# python train_bearing.py \
+#     --model conv1d4 \
+#     --hidden_dim 128 \
+#     --n_way 5 \
+#     --k_shot 1 \
+#     --epochs 100 \
+#     --inner_lr 0.01 \
+#     --outer_lr 0.001 \
+#     --inner_steps 5 \
+#     --strong_augment
 
 # 实验8: 完整正则化 (Dropout + 权重衰减 + 强增强)
 echo ""
@@ -116,7 +116,7 @@ python train_bearing.py \
     --hidden_dim 128 \
     --n_way 5 \
     --k_shot 1 \
-    --epochs 100 \
+    --epochs 50 \
     --inner_lr 0.01 \
     --outer_lr 0.001 \
     --inner_steps 5 \
