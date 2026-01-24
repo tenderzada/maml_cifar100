@@ -97,6 +97,8 @@ def parse_args():
                         help='模型保存路径')
     parser.add_argument('--log_dir', type=str, default='./logs',
                         help='日志保存路径')
+    parser.add_argument('--data_parallel', action='store_true',
+                        help='使用多GPU数据并行')
 
     return parser.parse_args()
 
@@ -109,7 +111,11 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     if torch.cuda.is_available():
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
+        num_gpus, gpu_names = get_device_info()
+        for i, name in enumerate(gpu_names):
+            print(f"GPU {i}: {name}")
+        if args.data_parallel and num_gpus > 1:
+            print(f"DataParallel enabled with {num_gpus} GPUs")
 
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
@@ -174,7 +180,7 @@ def main():
         )
         model_desc = f"Conv1D6 (hidden_dim={args.hidden_dim}, drop_rate={args.drop_rate})"
 
-    # 创建FedAvg (带权重衰减)
+    # 创建FedAvg (带权重衰减和数据并行)
     fedavg = FedAvg(
         global_model=model,
         num_clients=args.num_clients,
@@ -182,10 +188,13 @@ def main():
         local_epochs=args.local_epochs,
         local_lr=args.local_lr,
         weight_decay=args.weight_decay,
-        device=device
+        device=device,
+        use_data_parallel=args.data_parallel
     )
 
-    num_params = sum(p.numel() for p in fedavg.global_model.parameters())
+    # 计算参数数量 (处理DataParallel)
+    base_model = fedavg.global_model.module if args.data_parallel and torch.cuda.device_count() > 1 else fedavg.global_model
+    num_params = sum(p.numel() for p in base_model.parameters())
     print(f"Model: {model_desc}")
     print(f"Model parameters: {num_params:,}")
     print(f"Clients: {args.num_clients}, Per round: {args.clients_per_round}")
@@ -193,6 +202,7 @@ def main():
     print(f"Data distribution: {'IID' if args.iid else 'Non-IID'}")
     print(f"Regularization: dropout={args.drop_rate}, weight_decay={args.weight_decay}")
     print(f"Strong augmentation: {args.strong_augment}")
+    print(f"Data parallel: {args.data_parallel}")
 
     # 日志
     log_path = os.path.join(args.log_dir, f"{exp_name}_log.txt")
@@ -238,27 +248,17 @@ def main():
         history['test_losses'].append(test_stats['loss'])
         history['test_accs'].append(test_stats['accuracy'])
 
-        # 保存最佳模型
+        # 只保存最佳模型
         if test_stats['accuracy'] > best_test_acc:
             best_test_acc = test_stats['accuracy']
             best_path = os.path.join(args.save_dir, f"{exp_name}_best.pth")
             torch.save({
                 'round': round_idx,
-                'model_state_dict': fedavg.global_model.state_dict(),
+                'model_state_dict': fedavg.get_model_state_dict(),
                 'best_test_acc': best_test_acc,
                 'args': vars(args)
             }, best_path)
             log(f"New best model saved! Test Acc: {best_test_acc:.4f}")
-
-        # 定期保存
-        if (round_idx + 1) % 20 == 0:
-            ckpt_path = os.path.join(args.save_dir, f"{exp_name}_round{round_idx+1}.pth")
-            torch.save({
-                'round': round_idx,
-                'model_state_dict': fedavg.global_model.state_dict(),
-                'best_test_acc': best_test_acc,
-                'args': vars(args)
-            }, ckpt_path)
 
     # 最终结果
     log(f"\n{'='*60}")

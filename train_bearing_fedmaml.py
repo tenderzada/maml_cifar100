@@ -117,7 +117,9 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     if torch.cuda.is_available():
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
+        num_gpus = torch.cuda.device_count()
+        for i in range(num_gpus):
+            print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
 
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
@@ -276,16 +278,6 @@ def main():
                 'args': vars(args)
             }, best_path)
             log(f"New best model saved! Val Acc: {best_val_acc:.4f}")
-
-        # 定期保存
-        if (round_idx + 1) % 20 == 0:
-            ckpt_path = os.path.join(args.save_dir, f"{exp_name}_round{round_idx+1}.pth")
-            torch.save({
-                'round': round_idx,
-                'model_vars': [p.data.clone() for p in fedmaml.model.vars],
-                'best_val_acc': best_val_acc,
-                'args': vars(args)
-            }, ckpt_path)
 
     # 最终测试
     log(f"\n{'='*60}")

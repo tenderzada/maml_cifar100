@@ -38,7 +38,8 @@ class FedAvg:
         local_epochs: int = 5,
         local_lr: float = 0.01,
         weight_decay: float = 0.0,
-        device: str = 'cuda'
+        device: str = 'cuda',
+        use_data_parallel: bool = False
     ):
         """
         Args:
@@ -49,14 +50,23 @@ class FedAvg:
             local_lr: 本地学习率
             weight_decay: 权重衰减
             device: 计算设备
+            use_data_parallel: 是否使用多GPU数据并行
         """
-        self.global_model = global_model.to(device)
+        self.device = device
+        self.use_data_parallel = use_data_parallel
+
+        # 多GPU数据并行
+        if use_data_parallel and torch.cuda.device_count() > 1:
+            print(f"Using DataParallel with {torch.cuda.device_count()} GPUs")
+            self.global_model = nn.DataParallel(global_model).to(device)
+        else:
+            self.global_model = global_model.to(device)
+
         self.num_clients = num_clients
         self.clients_per_round = clients_per_round
         self.local_epochs = local_epochs
         self.local_lr = local_lr
         self.weight_decay = weight_decay
-        self.device = device
 
         # 客户端模型 (训练时创建)
         self.client_models = None
@@ -68,9 +78,14 @@ class FedAvg:
     def broadcast_global_model(self, client_ids: List[int]) -> List[nn.Module]:
         """将全局模型广播给选中的客户端"""
         client_models = []
+        # 获取基础模型 (去除DataParallel包装)
+        base_model = self.global_model.module if self.use_data_parallel else self.global_model
         for _ in client_ids:
-            # 深拷贝全局模型
-            client_model = deepcopy(self.global_model)
+            # 深拷贝基础模型
+            client_model = deepcopy(base_model)
+            # 客户端训练时也使用DataParallel
+            if self.use_data_parallel and torch.cuda.device_count() > 1:
+                client_model = nn.DataParallel(client_model).to(self.device)
             client_models.append(client_model)
         return client_models
 
@@ -139,9 +154,16 @@ class FedAvg:
             global_state[key] = torch.zeros_like(global_state[key], dtype=torch.float32)
             for client_model, weight in zip(client_models, client_weights):
                 client_state = client_model.state_dict()
+                # DataParallel的state_dict键名相同
                 global_state[key] += weight * client_state[key].float()
 
         self.global_model.load_state_dict(global_state)
+
+    def get_model_state_dict(self):
+        """获取模型state_dict (处理DataParallel)"""
+        if self.use_data_parallel:
+            return self.global_model.module.state_dict()
+        return self.global_model.state_dict()
 
     def train_round(self, client_loaders: List) -> Dict:
         """
