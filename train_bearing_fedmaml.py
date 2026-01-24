@@ -88,6 +88,14 @@ def parse_args():
     parser.add_argument('--hidden_dim', type=int, default=64,
                         help='CNN隐藏层维度')
 
+    # 正则化参数
+    parser.add_argument('--drop_rate', type=float, default=0.0,
+                        help='Dropout率 (推荐0.1-0.3)')
+    parser.add_argument('--weight_decay', type=float, default=0.0,
+                        help='权重衰减 (推荐1e-4)')
+    parser.add_argument('--strong_augment', action='store_true',
+                        help='使用强数据增强')
+
     # 其他参数
     parser.add_argument('--seed', type=int, default=42,
                         help='随机种子')
@@ -135,7 +143,7 @@ def main():
         seed=args.seed
     )
 
-    # 创建各客户端的Few-Shot数据加载器
+    # 创建各客户端的Few-Shot数据加载器 (带数据增强)
     client_loaders = []
     for i in range(args.num_clients):
         loader = fed_data.get_client_fewshot_loader(
@@ -144,7 +152,8 @@ def main():
             k_shot=args.k_shot,
             k_query=args.k_query,
             num_episodes=args.local_meta_steps * 2,  # 足够的episodes
-            num_workers=args.num_workers
+            num_workers=args.num_workers,
+            strong_augment=args.strong_augment
         )
         client_loaders.append(loader)
 
@@ -173,18 +182,20 @@ def main():
         model = Conv1D4Functional(
             in_channels=9,
             hidden_dim=args.hidden_dim,
-            n_way=args.n_way
+            n_way=args.n_way,
+            drop_rate=args.drop_rate
         )
-        model_desc = f"Conv1D4 (hidden_dim={args.hidden_dim})"
+        model_desc = f"Conv1D4 (hidden_dim={args.hidden_dim}, drop_rate={args.drop_rate})"
     else:  # conv1d6
         model = Conv1D6Functional(
             in_channels=9,
             hidden_dim=args.hidden_dim,
-            n_way=args.n_way
+            n_way=args.n_way,
+            drop_rate=args.drop_rate
         )
-        model_desc = f"Conv1D6 (hidden_dim={args.hidden_dim})"
+        model_desc = f"Conv1D6 (hidden_dim={args.hidden_dim}, drop_rate={args.drop_rate})"
 
-    # 创建FedMAML
+    # 创建FedMAML (带权重衰减)
     fedmaml = FedMAML(
         model=model,
         num_clients=args.num_clients,
@@ -192,6 +203,7 @@ def main():
         inner_lr=args.inner_lr,
         inner_steps=args.inner_steps,
         outer_lr=args.outer_lr,
+        weight_decay=args.weight_decay,
         local_meta_steps=args.local_meta_steps,
         first_order=args.first_order,
         device=device
@@ -206,6 +218,8 @@ def main():
     print(f"Outer LR: {args.outer_lr}")
     print(f"First Order: {args.first_order}")
     print(f"Data distribution: {'IID' if args.iid else 'Non-IID'}")
+    print(f"Regularization: dropout={args.drop_rate}, weight_decay={args.weight_decay}")
+    print(f"Strong augmentation: {args.strong_augment}")
 
     # 日志
     log_path = os.path.join(args.log_dir, f"{exp_name}_log.txt")

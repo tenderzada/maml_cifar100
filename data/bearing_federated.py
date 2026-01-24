@@ -17,6 +17,8 @@ import pickle
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
 
+from data.bearing_fewshot import RandomJitter, get_strong_augmentation
+
 
 DEFAULT_DATA_FILE = '/mnt/data/scutfd/bearing_data.pkl'
 
@@ -306,12 +308,23 @@ class FederatedBearingData:
         batch_size: int = 32,
         shuffle: bool = True,
         num_workers: int = 0,
-        transform=None
+        transform=None,
+        strong_augment: bool = False
     ) -> DataLoader:
         """
         获取指定客户端的DataLoader (用于FedAvg)
+
+        Args:
+            strong_augment: 是否使用强数据增强
         """
         cdata = self.client_data[client_id]
+
+        # 设置数据增强
+        if transform is None and shuffle:  # 训练时
+            if strong_augment:
+                transform = get_strong_augmentation()
+            else:
+                transform = RandomJitter(sigma=0.03)
 
         # 合并所有样本
         all_samples = []
@@ -342,12 +355,23 @@ class FederatedBearingData:
         k_query: int = 15,
         num_episodes: int = 100,
         num_workers: int = 0,
-        transform=None
+        transform=None,
+        strong_augment: bool = False
     ) -> DataLoader:
         """
         获取指定客户端的Few-Shot DataLoader (用于FedAvg+MAML)
+
+        Args:
+            strong_augment: 是否使用强数据增强
         """
         cdata = self.client_data[client_id]
+
+        # 设置数据增强
+        if transform is None:
+            if strong_augment:
+                transform = get_strong_augmentation()
+            else:
+                transform = RandomJitter(sigma=0.03)
 
         dataset = BearingFederatedFewShot(
             data_by_class=cdata['data_by_class'],

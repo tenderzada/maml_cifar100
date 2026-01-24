@@ -37,6 +37,7 @@ class FedAvg:
         clients_per_round: int = 2,
         local_epochs: int = 5,
         local_lr: float = 0.01,
+        weight_decay: float = 0.0,
         device: str = 'cuda'
     ):
         """
@@ -46,6 +47,7 @@ class FedAvg:
             clients_per_round: 每轮选择的客户端数量
             local_epochs: 本地训练轮数
             local_lr: 本地学习率
+            weight_decay: 权重衰减
             device: 计算设备
         """
         self.global_model = global_model.to(device)
@@ -53,6 +55,7 @@ class FedAvg:
         self.clients_per_round = clients_per_round
         self.local_epochs = local_epochs
         self.local_lr = local_lr
+        self.weight_decay = weight_decay
         self.device = device
 
         # 客户端模型 (训练时创建)
@@ -87,7 +90,8 @@ class FedAvg:
         optimizer = torch.optim.SGD(
             client_model.parameters(),
             lr=self.local_lr,
-            momentum=0.9
+            momentum=0.9,
+            weight_decay=self.weight_decay
         )
 
         total_loss = 0
@@ -229,6 +233,7 @@ class FedMAML:
         inner_lr: float = 0.01,
         inner_steps: int = 5,
         outer_lr: float = 0.001,
+        weight_decay: float = 0.0,
         local_meta_steps: int = 5,  # 每个客户端的元更新步数
         first_order: bool = False,
         device: str = 'cuda'
@@ -241,6 +246,7 @@ class FedMAML:
             inner_lr: MAML内层学习率
             inner_steps: MAML内层更新步数
             outer_lr: 外层 (元) 学习率
+            weight_decay: 权重衰减
             local_meta_steps: 每个客户端执行的元更新步数
             first_order: 是否使用一阶近似
             device: 计算设备
@@ -251,6 +257,7 @@ class FedMAML:
         self.inner_lr = inner_lr
         self.inner_steps = inner_steps
         self.outer_lr = outer_lr
+        self.weight_decay = weight_decay
         self.local_meta_steps = local_meta_steps
         self.first_order = first_order
         self.device = device
@@ -292,8 +299,10 @@ class FedMAML:
         # 复制全局参数
         local_vars = [p.clone().detach().requires_grad_(True) for p in self.model.vars]
 
-        # 本地元优化器
-        local_optimizer = torch.optim.Adam(local_vars, lr=self.outer_lr)
+        # 本地元优化器 (带权重衰减)
+        local_optimizer = torch.optim.Adam(
+            local_vars, lr=self.outer_lr, weight_decay=self.weight_decay
+        )
 
         total_loss = 0
         total_acc = 0

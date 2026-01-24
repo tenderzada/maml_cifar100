@@ -50,16 +50,20 @@ class Conv1D4(nn.Module):
     - FC: hidden_dim * 8 -> n_way
     """
 
-    def __init__(self, in_channels=9, hidden_dim=64, n_way=5):
+    def __init__(self, in_channels=9, hidden_dim=64, n_way=5, drop_rate=0.0):
         super(Conv1D4, self).__init__()
 
         self.hidden_dim = hidden_dim
         self.n_way = n_way
+        self.drop_rate = drop_rate
 
         self.layer1 = Conv1DBlock(in_channels, hidden_dim, kernel_size=7, padding=3, pool_size=4)
         self.layer2 = Conv1DBlock(hidden_dim, hidden_dim, kernel_size=5, padding=2, pool_size=4)
         self.layer3 = Conv1DBlock(hidden_dim, hidden_dim, kernel_size=5, padding=2, pool_size=4)
         self.layer4 = Conv1DBlock(hidden_dim, hidden_dim, kernel_size=3, padding=1, pool_size=4)
+
+        # Dropout层
+        self.dropout = nn.Dropout(p=drop_rate) if drop_rate > 0 else None
 
         # 2048 -> 512 -> 128 -> 32 -> 8
         self.fc = nn.Linear(hidden_dim * 8, n_way)
@@ -67,9 +71,15 @@ class Conv1D4(nn.Module):
     def forward(self, x):
         x = self.layer1(x)
         x = self.layer2(x)
+        if self.dropout:
+            x = self.dropout(x)
         x = self.layer3(x)
         x = self.layer4(x)
+        if self.dropout:
+            x = self.dropout(x)
         x = x.view(x.size(0), -1)
+        if self.dropout:
+            x = self.dropout(x)
         x = self.fc(x)
         return x
 

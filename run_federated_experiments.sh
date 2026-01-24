@@ -15,9 +15,9 @@ echo "=========================================="
 # FedAvg 实验
 # ========================================
 
-# 实验1: FedAvg IID
+# 实验1: FedAvg IID (带完整正则化)
 echo ""
-echo "[Exp 1] FedAvg IID (10 clients, 2 per round)"
+echo "[Exp 1] FedAvg IID (10 clients, 2 per round, with regularization)"
 python train_bearing_fedavg.py \
     --model conv1d4 \
     --hidden_dim 128 \
@@ -26,11 +26,14 @@ python train_bearing_fedavg.py \
     --iid \
     --rounds 100 \
     --local_epochs 5 \
-    --local_lr 0.01
+    --local_lr 0.01 \
+    --drop_rate 0.2 \
+    --weight_decay 1e-4 \
+    --strong_augment
 
-# 实验2: FedAvg Non-IID
+# 实验2: FedAvg Non-IID (带完整正则化)
 echo ""
-echo "[Exp 2] FedAvg Non-IID (10 clients, 2 per round)"
+echo "[Exp 2] FedAvg Non-IID (10 clients, 2 per round, with regularization)"
 python train_bearing_fedavg.py \
     --model conv1d4 \
     --hidden_dim 128 \
@@ -39,15 +42,18 @@ python train_bearing_fedavg.py \
     --rounds 100 \
     --local_epochs 5 \
     --local_lr 0.01 \
-    --non_iid_classes 6
+    --non_iid_classes 6 \
+    --drop_rate 0.2 \
+    --weight_decay 1e-4 \
+    --strong_augment
 
 # ========================================
 # FedAvg + MAML 实验
 # ========================================
 
-# 实验3: FedMAML IID 5-way 1-shot
+# 实验3: FedMAML IID 5-way 1-shot (带完整正则化)
 echo ""
-echo "[Exp 3] FedMAML IID 5-way 1-shot"
+echo "[Exp 3] FedMAML IID 5-way 1-shot (with regularization)"
 python train_bearing_fedmaml.py \
     --model conv1d4 \
     --hidden_dim 128 \
@@ -60,11 +66,14 @@ python train_bearing_fedmaml.py \
     --local_meta_steps 10 \
     --inner_lr 0.01 \
     --outer_lr 0.001 \
-    --inner_steps 5
+    --inner_steps 5 \
+    --drop_rate 0.2 \
+    --weight_decay 1e-4 \
+    --strong_augment
 
-# 实验4: FedMAML Non-IID 5-way 1-shot
+# 实验4: FedMAML Non-IID 5-way 1-shot (带完整正则化)
 echo ""
-echo "[Exp 4] FedMAML Non-IID 5-way 1-shot"
+echo "[Exp 4] FedMAML Non-IID 5-way 1-shot (with regularization)"
 python train_bearing_fedmaml.py \
     --model conv1d4 \
     --hidden_dim 128 \
@@ -77,11 +86,14 @@ python train_bearing_fedmaml.py \
     --inner_lr 0.01 \
     --outer_lr 0.001 \
     --inner_steps 5 \
-    --non_iid_classes 6
+    --non_iid_classes 6 \
+    --drop_rate 0.2 \
+    --weight_decay 1e-4 \
+    --strong_augment
 
-# 实验5: FedMAML IID 5-way 5-shot
+# 实验5: FedMAML IID 5-way 5-shot (带完整正则化)
 echo ""
-echo "[Exp 5] FedMAML IID 5-way 5-shot"
+echo "[Exp 5] FedMAML IID 5-way 5-shot (with regularization)"
 python train_bearing_fedmaml.py \
     --model conv1d4 \
     --hidden_dim 128 \
@@ -94,11 +106,14 @@ python train_bearing_fedmaml.py \
     --local_meta_steps 10 \
     --inner_lr 0.01 \
     --outer_lr 0.001 \
-    --inner_steps 5
+    --inner_steps 5 \
+    --drop_rate 0.2 \
+    --weight_decay 1e-4 \
+    --strong_augment
 
-# 实验6: FedMAML Non-IID 5-way 5-shot
+# 实验6: FedMAML Non-IID 5-way 5-shot (带完整正则化)
 echo ""
-echo "[Exp 6] FedMAML Non-IID 5-way 5-shot"
+echo "[Exp 6] FedMAML Non-IID 5-way 5-shot (with regularization)"
 python train_bearing_fedmaml.py \
     --model conv1d4 \
     --hidden_dim 128 \
@@ -111,7 +126,10 @@ python train_bearing_fedmaml.py \
     --inner_lr 0.01 \
     --outer_lr 0.001 \
     --inner_steps 5 \
-    --non_iid_classes 6
+    --non_iid_classes 6 \
+    --drop_rate 0.2 \
+    --weight_decay 1e-4 \
+    --strong_augment
 
 echo ""
 echo "=========================================="

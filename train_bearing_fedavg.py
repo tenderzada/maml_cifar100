@@ -71,6 +71,14 @@ def parse_args():
     parser.add_argument('--hidden_dim', type=int, default=64,
                         help='CNN隐藏层维度')
 
+    # 正则化参数
+    parser.add_argument('--drop_rate', type=float, default=0.0,
+                        help='Dropout率 (推荐0.1-0.3)')
+    parser.add_argument('--weight_decay', type=float, default=0.0,
+                        help='权重衰减 (推荐1e-4)')
+    parser.add_argument('--strong_augment', action='store_true',
+                        help='使用强数据增强')
+
     # 其他参数
     parser.add_argument('--seed', type=int, default=42,
                         help='随机种子')
@@ -118,14 +126,15 @@ def main():
         seed=args.seed
     )
 
-    # 创建各客户端的数据加载器
+    # 创建各客户端的数据加载器 (带数据增强)
     client_loaders = []
     for i in range(args.num_clients):
         loader = fed_data.get_client_dataloader(
             client_id=i,
             batch_size=args.batch_size,
             shuffle=True,
-            num_workers=args.num_workers
+            num_workers=args.num_workers,
+            strong_augment=args.strong_augment
         )
         client_loaders.append(loader)
 
@@ -143,26 +152,27 @@ def main():
         model = Conv1D4(
             in_channels=9,
             hidden_dim=args.hidden_dim,
-            n_way=n_classes
+            n_way=n_classes,
+            drop_rate=args.drop_rate
         )
-        model_desc = f"Conv1D4 (hidden_dim={args.hidden_dim})"
+        model_desc = f"Conv1D4 (hidden_dim={args.hidden_dim}, drop_rate={args.drop_rate})"
     else:  # conv1d6
-        # 需要添加Conv1D6非函数式版本
-        from models.conv1d import Conv1D4
         model = Conv1D4(
             in_channels=9,
             hidden_dim=args.hidden_dim,
-            n_way=n_classes
+            n_way=n_classes,
+            drop_rate=args.drop_rate
         )
-        model_desc = f"Conv1D4 (hidden_dim={args.hidden_dim})"
+        model_desc = f"Conv1D4 (hidden_dim={args.hidden_dim}, drop_rate={args.drop_rate})"
 
-    # 创建FedAvg
+    # 创建FedAvg (带权重衰减)
     fedavg = FedAvg(
         global_model=model,
         num_clients=args.num_clients,
         clients_per_round=args.clients_per_round,
         local_epochs=args.local_epochs,
         local_lr=args.local_lr,
+        weight_decay=args.weight_decay,
         device=device
     )
 
@@ -172,6 +182,8 @@ def main():
     print(f"Clients: {args.num_clients}, Per round: {args.clients_per_round}")
     print(f"Local epochs: {args.local_epochs}, Local LR: {args.local_lr}")
     print(f"Data distribution: {'IID' if args.iid else 'Non-IID'}")
+    print(f"Regularization: dropout={args.drop_rate}, weight_decay={args.weight_decay}")
+    print(f"Strong augmentation: {args.strong_augment}")
 
     # 日志
     log_path = os.path.join(args.log_dir, f"{exp_name}_log.txt")
