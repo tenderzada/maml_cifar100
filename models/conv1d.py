@@ -93,6 +93,64 @@ class Conv1D4(nn.Module):
         return x
 
 
+class Conv1D6(nn.Module):
+    """
+    6层1D卷积网络 (更大容量)
+
+    输入: [batch, 9, 2048]
+    输出: [batch, n_way]
+    """
+
+    def __init__(self, in_channels=9, hidden_dim=64, n_way=5, drop_rate=0.0):
+        super(Conv1D6, self).__init__()
+
+        self.hidden_dim = hidden_dim
+        self.n_way = n_way
+        self.drop_rate = drop_rate
+
+        # 6层卷积
+        self.layer1 = Conv1DBlock(in_channels, hidden_dim, kernel_size=7, padding=3, pool_size=2)
+        self.layer2 = Conv1DBlock(hidden_dim, hidden_dim, kernel_size=5, padding=2, pool_size=2)
+        self.layer3 = Conv1DBlock(hidden_dim, hidden_dim, kernel_size=5, padding=2, pool_size=2)
+        self.layer4 = Conv1DBlock(hidden_dim, hidden_dim * 2, kernel_size=3, padding=1, pool_size=2)
+        self.layer5 = Conv1DBlock(hidden_dim * 2, hidden_dim * 2, kernel_size=3, padding=1, pool_size=2)
+        self.layer6 = Conv1DBlock(hidden_dim * 2, hidden_dim * 2, kernel_size=3, padding=1, pool_size=2)
+
+        # Dropout层
+        self.dropout = nn.Dropout(p=drop_rate) if drop_rate > 0 else None
+
+        # 2048 -> 1024 -> 512 -> 256 -> 128 -> 64 -> 32
+        self.fc = nn.Linear(hidden_dim * 2 * 32, n_way)
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        if self.dropout:
+            x = self.dropout(x)
+        x = self.layer4(x)
+        x = self.layer5(x)
+        x = self.layer6(x)
+        if self.dropout:
+            x = self.dropout(x)
+        x = x.view(x.size(0), -1)
+        if self.dropout:
+            x = self.dropout(x)
+        x = self.fc(x)
+        return x
+
+    def feature_extractor(self, x):
+        """仅返回特征"""
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.layer5(x)
+        x = self.layer6(x)
+        x = x.view(x.size(0), -1)
+        return x
+
+
 class Conv1D4Functional(nn.Module):
     """
     函数式1D Conv4，用于MAML的内层优化

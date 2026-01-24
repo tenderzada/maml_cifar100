@@ -25,6 +25,15 @@ from models.federated import FedAvg
 from utils.visualization import plot_learning_curves
 
 
+def get_device_info():
+    """获取GPU设备信息"""
+    if torch.cuda.is_available():
+        num_gpus = torch.cuda.device_count()
+        gpu_names = [torch.cuda.get_device_name(i) for i in range(num_gpus)]
+        return num_gpus, gpu_names
+    return 0, []
+
+
 def set_seed(seed):
     """设置随机种子"""
     random.seed(seed)
@@ -157,13 +166,13 @@ def main():
         )
         model_desc = f"Conv1D4 (hidden_dim={args.hidden_dim}, drop_rate={args.drop_rate})"
     else:  # conv1d6
-        model = Conv1D4(
+        model = Conv1D6(
             in_channels=9,
             hidden_dim=args.hidden_dim,
             n_way=n_classes,
             drop_rate=args.drop_rate
         )
-        model_desc = f"Conv1D4 (hidden_dim={args.hidden_dim}, drop_rate={args.drop_rate})"
+        model_desc = f"Conv1D6 (hidden_dim={args.hidden_dim}, drop_rate={args.drop_rate})"
 
     # 创建FedAvg (带权重衰减)
     fedavg = FedAvg(
