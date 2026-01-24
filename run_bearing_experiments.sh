@@ -132,7 +132,7 @@ python train_bearing.py \
     --hidden_dim 128 \
     --n_way 5 \
     --k_shot 5 \
-    --epochs 50 \
+    --epochs 100 \
     --inner_lr 0.01 \
     --outer_lr 0.001 \
     --inner_steps 5 \
