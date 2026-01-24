@@ -125,38 +125,38 @@ echo "=========================================="
 #     --strong_augment
 
 # 实验9: 完整正则化 (Dropout + 权重衰减 + 强增强)
-echo ""
-echo "[Exp 9] 5-way 5-shot MAML with Full Regularization (Conv1D4-128)"
-python train_bearing.py \
-    --model conv1d4 \
-    --hidden_dim 128 \
-    --n_way 5 \
-    --k_shot 5 \
-    --epochs 100 \
-    --inner_lr 0.01 \
-    --outer_lr 0.001 \
-    --inner_steps 5 \
-    --drop_rate 0.2 \
-    --weight_decay 1e-4 \
-    --strong_augment
+# echo ""
+# echo "[Exp 9] 5-way 5-shot MAML with Full Regularization (Conv1D4-128)"
+# python train_bearing.py \
+#     --model conv1d4 \
+#     --hidden_dim 128 \
+#     --n_way 5 \
+#     --k_shot 5 \
+#     --epochs 100 \
+#     --inner_lr 0.01 \
+#     --outer_lr 0.001 \
+#     --inner_steps 5 \
+#     --drop_rate 0.2 \
+#     --weight_decay 1e-4 \
+#     --strong_augment
 
 # ========================================
 # Meta-SGD 对比实验
 # ========================================
 
 # 实验10: Meta-SGD 5-way 1-shot
-echo ""
-echo "[Exp 10] 5-way 1-shot Meta-SGD (Conv1D4-128)"
-python train_bearing_metasgd.py \
-    --model conv1d4 \
-    --hidden_dim 128 \
-    --n_way 5 \
-    --k_shot 1 \
-    --epochs 100 \
-    --inner_lr_init 0.01 \
-    --outer_lr 0.001 \
-    --alpha_lr 0.001 \
-    --inner_steps 1
+# echo ""
+# echo "[Exp 10] 5-way 1-shot Meta-SGD (Conv1D4-128)"
+# python train_bearing_metasgd.py \
+#     --model conv1d4 \
+#     --hidden_dim 128 \
+#     --n_way 5 \
+#     --k_shot 1 \
+#     --epochs 100 \
+#     --inner_lr_init 0.01 \
+#     --outer_lr 0.001 \
+#     --alpha_lr 0.001 \
+#     --inner_steps 1
 
 # 实验11: Meta-SGD 5-way 5-shot
 echo ""
