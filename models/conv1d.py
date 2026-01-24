@@ -91,12 +91,13 @@ class Conv1D4Functional(nn.Module):
     输入: [batch, 9, 2048]
     """
 
-    def __init__(self, in_channels=9, hidden_dim=64, n_way=5):
+    def __init__(self, in_channels=9, hidden_dim=64, n_way=5, drop_rate=0.0):
         super(Conv1D4Functional, self).__init__()
 
         self.in_channels = in_channels
         self.hidden_dim = hidden_dim
         self.n_way = n_way
+        self.drop_rate = drop_rate  # Dropout率
 
         # 卷积核大小和池化大小
         self.kernel_sizes = [7, 5, 5, 3]
@@ -164,10 +165,18 @@ class Conv1D4Functional(nn.Module):
             x = F.relu(x, inplace=True)
             x = F.max_pool1d(x, self.pool_sizes[i])
 
+            # Dropout (在最后两层之后)
+            if self.drop_rate > 0 and i >= 2 and bn_training:
+                x = F.dropout(x, p=self.drop_rate, training=True)
+
             idx += 4
             bn_idx += 2
 
         x = x.view(x.size(0), -1)
+
+        # Dropout before FC
+        if self.drop_rate > 0 and bn_training:
+            x = F.dropout(x, p=self.drop_rate, training=True)
 
         # FC layer
         w, b = vars[idx], vars[idx + 1]
@@ -186,12 +195,13 @@ class Conv1D6Functional(nn.Module):
     输入: [batch, 9, 2048]
     """
 
-    def __init__(self, in_channels=9, hidden_dim=64, n_way=5):
+    def __init__(self, in_channels=9, hidden_dim=64, n_way=5, drop_rate=0.0):
         super(Conv1D6Functional, self).__init__()
 
         self.in_channels = in_channels
         self.hidden_dim = hidden_dim
         self.n_way = n_way
+        self.drop_rate = drop_rate
 
         # 6层配置
         self.kernel_sizes = [7, 5, 5, 3, 3, 3]
@@ -251,10 +261,18 @@ class Conv1D6Functional(nn.Module):
             x = F.relu(x, inplace=True)
             x = F.max_pool1d(x, self.pool_sizes[i])
 
+            # Dropout (在后3层之后)
+            if self.drop_rate > 0 and i >= 3 and bn_training:
+                x = F.dropout(x, p=self.drop_rate, training=True)
+
             idx += 4
             bn_idx += 2
 
         x = x.view(x.size(0), -1)
+
+        # Dropout before FC
+        if self.drop_rate > 0 and bn_training:
+            x = F.dropout(x, p=self.drop_rate, training=True)
 
         w, b = vars[idx], vars[idx + 1]
         x = F.linear(x, w, b)

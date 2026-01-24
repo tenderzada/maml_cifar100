@@ -73,6 +73,16 @@ def parse_args():
     parser.add_argument('--hidden_dim', type=int, default=64,
                         help='CNN隐藏层维度 (32/64/128)')
 
+    # 正则化参数 (减少过拟合)
+    parser.add_argument('--drop_rate', type=float, default=0.0,
+                        help='Dropout率 (推荐0.1-0.3)')
+    parser.add_argument('--weight_decay', type=float, default=0.0,
+                        help='权重衰减 (推荐1e-4到1e-3)')
+    parser.add_argument('--strong_augment', action='store_true',
+                        help='使用强数据增强')
+    parser.add_argument('--meta_reg', type=float, default=0.0,
+                        help='元正则化系数 (鼓励初始化参数靠近适应后参数)')
+
     # 其他参数
     parser.add_argument('--seed', type=int, default=42,
                         help='随机种子')
@@ -120,7 +130,8 @@ def main():
         k_shot=args.k_shot,
         k_query=args.k_query,
         num_episodes=args.train_episodes,
-        num_workers=args.num_workers
+        num_workers=args.num_workers,
+        strong_augment=args.strong_augment
     )
 
     val_loader = get_bearing_fewshot_loader(
@@ -153,16 +164,18 @@ def main():
         model = Conv1D4Functional(
             in_channels=9,
             hidden_dim=args.hidden_dim,
-            n_way=args.n_way
+            n_way=args.n_way,
+            drop_rate=args.drop_rate
         )
-        model_desc = f"Conv1D4 (hidden_dim={args.hidden_dim})"
+        model_desc = f"Conv1D4 (hidden_dim={args.hidden_dim}, drop_rate={args.drop_rate})"
     else:  # conv1d6
         model = Conv1D6Functional(
             in_channels=9,
             hidden_dim=args.hidden_dim,
-            n_way=args.n_way
+            n_way=args.n_way,
+            drop_rate=args.drop_rate
         )
-        model_desc = f"Conv1D6 (hidden_dim={args.hidden_dim})"
+        model_desc = f"Conv1D6 (hidden_dim={args.hidden_dim}, drop_rate={args.drop_rate})"
 
     maml = MAML(
         model=model,
@@ -177,9 +190,16 @@ def main():
     print(f"Model parameters: {num_params:,}")
     print(f"Inner LR: {args.inner_lr}, Inner Steps: {args.inner_steps}")
     print(f"First Order (FOMAML): {args.first_order}")
+    print(f"Regularization: dropout={args.drop_rate}, weight_decay={args.weight_decay}")
+    print(f"Strong augmentation: {args.strong_augment}")
 
-    # 创建训练器
-    trainer = MAMLTrainer(maml, outer_lr=args.outer_lr, device=device)
+    # 创建训练器 (带权重衰减)
+    trainer = MAMLTrainer(
+        maml,
+        outer_lr=args.outer_lr,
+        weight_decay=args.weight_decay,
+        device=device
+    )
 
     # 恢复训练
     start_epoch = 0

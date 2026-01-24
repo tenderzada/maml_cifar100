@@ -148,18 +148,21 @@ class MAMLTrainer:
     MAML训练器
     """
 
-    def __init__(self, maml, outer_lr=0.001, device='cuda'):
+    def __init__(self, maml, outer_lr=0.001, weight_decay=0.0, device='cuda'):
         """
         Args:
             maml: MAML模型
             outer_lr: 外层学习率 (meta-learning rate)
+            weight_decay: 权重衰减系数
             device: 计算设备
         """
         self.maml = maml
         self.device = device
 
-        # 外层优化器
-        self.optimizer = torch.optim.Adam(maml.model.vars, lr=outer_lr)
+        # 外层优化器 (带权重衰减)
+        self.optimizer = torch.optim.Adam(
+            maml.model.vars, lr=outer_lr, weight_decay=weight_decay
+        )
 
         # 学习率调度器
         self.scheduler = torch.optim.lr_scheduler.StepLR(

@@ -76,6 +76,54 @@ python train_bearing.py \
     --outer_lr 0.001 \
     --inner_steps 5
 
+# ========================================
+# 正则化实验 (减少过拟合)
+# ========================================
+
+# 实验6: 带Dropout的MAML
+echo ""
+echo "[Exp 6] 5-way 1-shot MAML with Dropout (Conv1D4-128)"
+python train_bearing.py \
+    --model conv1d4 \
+    --hidden_dim 128 \
+    --n_way 5 \
+    --k_shot 1 \
+    --epochs 100 \
+    --inner_lr 0.01 \
+    --outer_lr 0.001 \
+    --inner_steps 5 \
+    --drop_rate 0.2
+
+# 实验7: 带强数据增强的MAML
+echo ""
+echo "[Exp 7] 5-way 1-shot MAML with Strong Augmentation (Conv1D4-128)"
+python train_bearing.py \
+    --model conv1d4 \
+    --hidden_dim 128 \
+    --n_way 5 \
+    --k_shot 1 \
+    --epochs 100 \
+    --inner_lr 0.01 \
+    --outer_lr 0.001 \
+    --inner_steps 5 \
+    --strong_augment
+
+# 实验8: 完整正则化 (Dropout + 权重衰减 + 强增强)
+echo ""
+echo "[Exp 8] 5-way 1-shot MAML with Full Regularization (Conv1D4-128)"
+python train_bearing.py \
+    --model conv1d4 \
+    --hidden_dim 128 \
+    --n_way 5 \
+    --k_shot 1 \
+    --epochs 100 \
+    --inner_lr 0.01 \
+    --outer_lr 0.001 \
+    --inner_steps 5 \
+    --drop_rate 0.2 \
+    --weight_decay 1e-4 \
+    --strong_augment
+
 echo ""
 echo "=========================================="
 echo "All bearing experiments completed!"

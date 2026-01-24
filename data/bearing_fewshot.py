@@ -174,13 +174,20 @@ def get_bearing_fewshot_loader(
     batch_size: int = 1,
     num_workers: int = 4,
     transform=None,
+    strong_augment: bool = False,
 ):
     """
     获取轴承数据的few-shot dataloader
+
+    Args:
+        strong_augment: 是否使用强数据增强（推荐用于减少过拟合）
     """
     # 训练时可以添加数据增强
     if mode == 'train' and transform is None:
-        transform = RandomJitter(sigma=0.01)
+        if strong_augment:
+            transform = get_strong_augmentation()
+        else:
+            transform = RandomJitter(sigma=0.03)
 
     dataset = BearingFewShot(
         data_file=data_file,
@@ -204,13 +211,12 @@ def get_bearing_fewshot_loader(
 
 
 class RandomJitter:
-    """随机抖动增强 (适用于时序数据)"""
+    """随机抖动增强 (高斯噪声)"""
 
-    def __init__(self, sigma=0.01):
+    def __init__(self, sigma=0.05):
         self.sigma = sigma
 
     def __call__(self, x):
-        # x: [channels, length]
         noise = torch.randn_like(x) * self.sigma
         return x + noise
 
@@ -218,12 +224,132 @@ class RandomJitter:
 class RandomScale:
     """随机缩放增强"""
 
-    def __init__(self, scale_range=(0.9, 1.1)):
+    def __init__(self, scale_range=(0.8, 1.2)):
         self.scale_range = scale_range
 
     def __call__(self, x):
         scale = random.uniform(*self.scale_range)
         return x * scale
+
+
+class RandomTimeWarp:
+    """随机时间扭曲 (局部拉伸/压缩)"""
+
+    def __init__(self, sigma=0.2, knot=4):
+        self.sigma = sigma
+        self.knot = knot
+
+    def __call__(self, x):
+        # x: [channels, length]
+        from scipy.interpolate import CubicSpline
+        import numpy as np
+
+        orig_steps = np.arange(x.shape[1])
+
+        # 生成扭曲锚点
+        random_warps = np.random.normal(loc=1.0, scale=self.sigma, size=(self.knot + 2,))
+        warp_steps = np.linspace(0, x.shape[1] - 1, num=self.knot + 2)
+
+        # 累积扭曲
+        time_warp = np.cumsum(random_warps)
+        time_warp = (time_warp - time_warp[0]) / (time_warp[-1] - time_warp[0]) * (x.shape[1] - 1)
+
+        # 插值
+        cs = CubicSpline(warp_steps, time_warp)
+        new_steps = cs(orig_steps)
+        new_steps = np.clip(new_steps, 0, x.shape[1] - 1).astype(np.int32)
+
+        return x[:, new_steps]
+
+
+class RandomCrop:
+    """随机裁剪并resize回原长度"""
+
+    def __init__(self, crop_ratio=(0.8, 1.0)):
+        self.crop_ratio = crop_ratio
+
+    def __call__(self, x):
+        # x: [channels, length]
+        length = x.shape[1]
+        crop_len = int(length * random.uniform(*self.crop_ratio))
+        start = random.randint(0, length - crop_len)
+
+        cropped = x[:, start:start + crop_len]
+
+        # Resize back using interpolation
+        if cropped.shape[1] != length:
+            cropped = torch.nn.functional.interpolate(
+                cropped.unsqueeze(0), size=length, mode='linear', align_corners=False
+            ).squeeze(0)
+
+        return cropped
+
+
+class ChannelDropout:
+    """随机丢弃部分通道"""
+
+    def __init__(self, drop_prob=0.1):
+        self.drop_prob = drop_prob
+
+    def __call__(self, x):
+        # x: [channels, length]
+        if random.random() < self.drop_prob:
+            num_channels = x.shape[0]
+            drop_idx = random.randint(0, num_channels - 1)
+            x = x.clone()
+            x[drop_idx] = 0
+        return x
+
+
+class Mixup:
+    """通道内Mixup (同一样本不同位置混合)"""
+
+    def __init__(self, alpha=0.2):
+        self.alpha = alpha
+
+    def __call__(self, x):
+        if random.random() < 0.5:
+            lam = np.random.beta(self.alpha, self.alpha)
+            # 随机移位混合
+            shift = random.randint(1, x.shape[1] // 4)
+            x_shifted = torch.roll(x, shifts=shift, dims=1)
+            x = lam * x + (1 - lam) * x_shifted
+        return x
+
+
+class Compose:
+    """组合多个增强"""
+
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def __call__(self, x):
+        for t in self.transforms:
+            x = t(x)
+        return x
+
+
+class RandomApply:
+    """以一定概率应用增强"""
+
+    def __init__(self, transform, p=0.5):
+        self.transform = transform
+        self.p = p
+
+    def __call__(self, x):
+        if random.random() < self.p:
+            return self.transform(x)
+        return x
+
+
+def get_strong_augmentation():
+    """获取强数据增强组合"""
+    return Compose([
+        RandomApply(RandomJitter(sigma=0.05), p=0.8),
+        RandomApply(RandomScale(scale_range=(0.8, 1.2)), p=0.5),
+        RandomApply(RandomCrop(crop_ratio=(0.85, 1.0)), p=0.3),
+        RandomApply(ChannelDropout(drop_prob=0.1), p=0.2),
+    ])
 
 
 if __name__ == '__main__':
