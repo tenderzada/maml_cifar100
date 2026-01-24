@@ -1,8 +1,21 @@
-# MAML for Few-Shot Learning
+# Meta-Learning for Few-Shot Learning
 
-本项目实现了 **MAML (Model-Agnostic Meta-Learning)** 算法，支持两种数据集:
+本项目实现了两种经典元学习算法:
+1. **MAML** (Model-Agnostic Meta-Learning, Finn et al., 2017)
+2. **Meta-SGD** (Learning to Learn Quickly for Few-Shot Learning, Li et al., 2017)
+
+支持两种数据集:
 1. **CIFAR-100** - 图像分类
 2. **轴承故障诊断** - 时序信号分类
+
+## 算法对比
+
+| 算法 | 内层更新公式 | 学习率 | 特点 |
+|------|-------------|--------|------|
+| MAML | θ' = θ - lr·∇θL | 固定标量 | 学习好的初始化参数 |
+| Meta-SGD | θ' = θ - α⊙∇θL | 可学习向量 | 同时学习初始化和学习率 |
+
+其中 `⊙` 表示逐元素乘法，`α` 是与参数同维度的可学习学习率向量。
 
 ## 项目结构
 
@@ -16,11 +29,13 @@ maml_cifar100/
 │   ├── conv4.py               # 2D CNN (图像)
 │   ├── resnet.py              # ResNet12 (图像)
 │   ├── conv1d.py              # 1D CNN (时序信号)
-│   └── maml.py                # MAML算法
+│   ├── maml.py                # MAML算法
+│   └── meta_sgd.py            # Meta-SGD算法
 ├── utils/
 │   └── visualization.py       # 可视化工具
-├── train.py                   # CIFAR-100训练
-├── train_bearing.py           # 轴承数据训练
+├── train.py                   # CIFAR-100 MAML训练
+├── train_bearing.py           # 轴承数据 MAML训练
+├── train_bearing_metasgd.py   # 轴承数据 Meta-SGD训练
 ├── pretrain.py                # 预训练 (Transfer Learning)
 ├── evaluate.py                # 评估脚本
 ├── baseline.py                # Baseline方法
@@ -80,17 +95,24 @@ python train.py --model conv4 --hidden_dim 128 --first_order
 # 5-way 1-shot MAML
 python train_bearing.py --model conv1d4 --hidden_dim 64 --n_way 5 --k_shot 1
 
-# 5-way 5-shot MAML
-python train_bearing.py --model conv1d4 --hidden_dim 128 --n_way 5 --k_shot 5
+# 5-way 5-shot MAML with regularization
+python train_bearing.py --model conv1d4 --hidden_dim 128 --n_way 5 --k_shot 5 \
+    --drop_rate 0.2 --weight_decay 1e-4 --strong_augment
 
-# 使用更深的网络
-python train_bearing.py --model conv1d6 --hidden_dim 64 --n_way 5 --k_shot 1
+# 5-way 1-shot Meta-SGD
+python train_bearing_metasgd.py --model conv1d4 --hidden_dim 128 --n_way 5 --k_shot 1
 
-# 运行完整实验
+# 5-way 5-shot Meta-SGD with regularization
+python train_bearing_metasgd.py --model conv1d4 --hidden_dim 128 --n_way 5 --k_shot 5 \
+    --drop_rate 0.2 --weight_decay 1e-4 --strong_augment
+
+# 运行完整实验 (MAML + Meta-SGD)
 ./run_bearing_experiments.sh
 ```
 
 ## 主要参数
+
+### 通用参数
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
@@ -98,11 +120,32 @@ python train_bearing.py --model conv1d6 --hidden_dim 64 --n_way 5 --k_shot 1
 | `--hidden_dim` | 64 | 隐藏层维度 |
 | `--n_way` | 5 | N-way分类 |
 | `--k_shot` | 1 | 每类样本数 |
-| `--inner_lr` | 0.01 | 内层学习率 |
 | `--outer_lr` | 0.001 | 外层学习率 |
+| `--epochs` | 100 | 训练轮数 |
+
+### MAML特有参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--inner_lr` | 0.01 | 内层学习率 (固定标量) |
 | `--inner_steps` | 5 | 内层更新步数 |
 | `--first_order` | False | 使用FOMAML |
-| `--epochs` | 100 | 训练轮数 |
+
+### Meta-SGD特有参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--inner_lr_init` | 0.01 | 学习率向量初始值 |
+| `--alpha_lr` | 0.001 | 学习率向量的学习率 |
+| `--inner_steps` | 1 | 内层更新步数 (通常为1) |
+
+### 正则化参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--drop_rate` | 0.0 | Dropout率 (推荐0.1-0.3) |
+| `--weight_decay` | 0.0 | 权重衰减 (推荐1e-4) |
+| `--strong_augment` | False | 使用强数据增强 |
 
 ## 数据路径配置
 
@@ -141,6 +184,13 @@ logs/
   title={Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks},
   author={Finn, Chelsea and Abbeel, Pieter and Levine, Sergey},
   booktitle={ICML},
+  year={2017}
+}
+
+@article{li2017meta,
+  title={Meta-SGD: Learning to Learn Quickly for Few-Shot Learning},
+  author={Li, Zhenguo and Zhou, Fengwei and Chen, Fei and Li, Hang},
+  journal={arXiv preprint arXiv:1707.09835},
   year={2017}
 }
 ```
