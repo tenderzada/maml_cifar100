@@ -193,6 +193,21 @@ class FederatedBearingData:
         self.val_classes = all_classes[40:52]
         self.test_classes = all_classes[52:64]
 
+        # 创建标签映射 (原始类别索引 -> 0, 1, 2, ..., n-1)
+        self.train_label_map = {cls: i for i, cls in enumerate(self.train_classes)}
+        self.test_label_map = {cls: i for i, cls in enumerate(self.test_classes)}
+
+        # 分离训练和测试数据 (训练类别中80%用于训练，20%用于测试)
+        self.client_data_by_class = defaultdict(list)  # 用于客户端训练
+        self.test_data_by_class = defaultdict(list)    # 用于全局测试
+
+        for cls in self.train_classes:
+            samples = self.data_by_class[cls].copy()
+            random.shuffle(samples)
+            n_test = max(1, len(samples) // 5)  # 20%用于测试
+            self.test_data_by_class[cls] = samples[:n_test]
+            self.client_data_by_class[cls] = samples[n_test:]
+
         # 恢复随机种子
         random.seed(seed)
 
@@ -229,7 +244,7 @@ class FederatedBearingData:
                        for _ in range(self.num_clients)]
 
         for cls in self.train_classes:
-            samples = self.data_by_class[cls].copy()
+            samples = self.client_data_by_class[cls].copy()
             random.shuffle(samples)
 
             # 均匀分配给各客户端
@@ -276,7 +291,7 @@ class FederatedBearingData:
             client_data[i]['classes'] = client_classes
 
             for cls in client_classes:
-                samples = self.data_by_class[cls].copy()
+                samples = self.client_data_by_class[cls].copy()
 
                 # 每个客户端获得该类别的一部分数据
                 # 计算有多少客户端共享这个类别
@@ -326,12 +341,14 @@ class FederatedBearingData:
             else:
                 transform = RandomJitter(sigma=0.03)
 
-        # 合并所有样本
+        # 合并所有样本 (使用映射后的标签)
         all_samples = []
         all_labels = []
         for cls, samples in cdata['data_by_class'].items():
             all_samples.extend(samples)
-            all_labels.extend([cls] * len(samples))
+            # 使用映射后的标签 (0, 1, 2, ..., n_classes-1)
+            mapped_label = self.train_label_map[cls]
+            all_labels.extend([mapped_label] * len(samples))
 
         dataset = BearingFederatedDataset(
             np.array(all_samples),
@@ -398,15 +415,19 @@ class FederatedBearingData:
         transform=None
     ) -> DataLoader:
         """
-        获取全局测试集DataLoader (用于评估)
+        获取全局测试集DataLoader (用于FedAvg评估)
+
+        使用预留的测试数据 (训练类别的20%)
         """
         all_samples = []
         all_labels = []
 
-        for cls in self.test_classes:
-            samples = self.data_by_class[cls]
+        for cls in self.train_classes:
+            samples = self.test_data_by_class[cls]
             all_samples.extend(samples)
-            all_labels.extend([cls] * len(samples))
+            # 使用映射后的标签
+            mapped_label = self.train_label_map[cls]
+            all_labels.extend([mapped_label] * len(samples))
 
         dataset = BearingFederatedDataset(
             np.array(all_samples),

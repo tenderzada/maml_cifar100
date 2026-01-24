@@ -106,47 +106,47 @@ echo ""
 # FedMAML 实验 (5-shot)
 # ========================================
 
-echo "=========================================="
-echo "FedMAML 5-shot Experiments"
-echo "=========================================="
+# echo "=========================================="
+# echo "FedMAML 5-shot Experiments"
+# echo "=========================================="
 
-# 实验5: FedMAML IID 5-way 5-shot
-echo "FedMAML IID 5-way 5-shot"
-python train_bearing_fedmaml.py \
-    --model conv1d4 \
-    --hidden_dim 128 \
-    --n_way 5 \
-    --k_shot 5 \
-    --num_clients 10 \
-    --clients_per_round 2 \
-    --iid \
-    --rounds 100 \
-    --local_meta_steps 10 \
-    --inner_lr 0.01 \
-    --outer_lr 0.001 \
-    --inner_steps 5 \
-    --drop_rate 0.2 \
-    --weight_decay 1e-4 \
-    --strong_augment
+# # 实验5: FedMAML IID 5-way 5-shot
+# echo "FedMAML IID 5-way 5-shot"
+# python train_bearing_fedmaml.py \
+#     --model conv1d4 \
+#     --hidden_dim 128 \
+#     --n_way 5 \
+#     --k_shot 5 \
+#     --num_clients 10 \
+#     --clients_per_round 2 \
+#     --iid \
+#     --rounds 100 \
+#     --local_meta_steps 10 \
+#     --inner_lr 0.01 \
+#     --outer_lr 0.001 \
+#     --inner_steps 5 \
+#     --drop_rate 0.2 \
+#     --weight_decay 1e-4 \
+#     --strong_augment
 
 # 实验6: FedMAML Non-IID 5-way 5-shot
-echo "FedMAML Non-IID 5-way 5-shot"
-python train_bearing_fedmaml.py \
-    --model conv1d4 \
-    --hidden_dim 128 \
-    --n_way 5 \
-    --k_shot 5 \
-    --num_clients 10 \
-    --clients_per_round 2 \
-    --rounds 100 \
-    --local_meta_steps 10 \
-    --inner_lr 0.01 \
-    --outer_lr 0.001 \
-    --inner_steps 5 \
-    --non_iid_classes 6 \
-    --drop_rate 0.2 \
-    --weight_decay 1e-4 \
-    --strong_augment
+# echo "FedMAML Non-IID 5-way 5-shot"
+# python train_bearing_fedmaml.py \
+#     --model conv1d4 \
+#     --hidden_dim 128 \
+#     --n_way 5 \
+#     --k_shot 5 \
+#     --num_clients 10 \
+#     --clients_per_round 2 \
+#     --rounds 100 \
+#     --local_meta_steps 10 \
+#     --inner_lr 0.01 \
+#     --outer_lr 0.001 \
+#     --inner_steps 5 \
+#     --non_iid_classes 6 \
+#     --drop_rate 0.2 \
+#     --weight_decay 1e-4 \
+#     --strong_augment
 
 echo ""
 echo "=========================================="
