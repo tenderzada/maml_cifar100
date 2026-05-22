@@ -488,6 +488,214 @@ class FedMAML:
         }
 
 
+class FedPerMAML:
+    """
+    固定类别版 Per-FedAvg (FedAvg + MAML)
+    Fallah et al., "Personalized Federated Learning: A Meta-Learning Approach", NeurIPS 2020
+
+    与 FedMAML (episodic, 相对标签) 不同, 这里做绝对 num_classes 类分类:
+    - 服务器维护全局 functional 模型参数 θ
+    - 每轮选客户端, 客户端用本地数据做 MAML 本地更新 (内层 support 适应, 外层 query meta-loss)
+    - 服务器聚合参数增量 Δθ
+    - 评测: 全局模型在测试 support 上内层适应几步, 再在 query 上评测 (adapt-then-eval)
+    """
+
+    def __init__(self, model, num_clients=10, clients_per_round=5,
+                 inner_lr=0.01, inner_steps=5, outer_lr=0.001,
+                 local_meta_steps=5, weight_decay=0.0,
+                 first_order=True, grad_clip=10.0, device='cuda'):
+        self.model = model.to(device)
+        self.num_clients = num_clients
+        self.clients_per_round = clients_per_round
+        self.inner_lr = inner_lr
+        self.inner_steps = inner_steps
+        self.outer_lr = outer_lr
+        self.local_meta_steps = local_meta_steps
+        self.weight_decay = weight_decay
+        self.first_order = first_order
+        self.grad_clip = grad_clip
+        self.device = device
+
+    def select_clients(self):
+        return random.sample(range(self.num_clients), self.clients_per_round)
+
+    def inner_loop(self, support_x, support_y, vars, create_graph):
+        """MAML 内层: 标量学习率 self.inner_lr"""
+        for _ in range(self.inner_steps):
+            logits = self.model(support_x, vars=vars, bn_training=True)
+            loss = F.cross_entropy(logits, support_y)
+            grads = autograd.grad(loss, vars, create_graph=create_graph)
+            vars = [v - self.inner_lr * g for v, g in zip(vars, grads)]
+        return vars
+
+    def _local_params(self):
+        """客户端本地可优化参数 (此处仅 θ)"""
+        return [p.clone().detach().requires_grad_(True) for p in self.model.vars]
+
+    def client_update(self, sampler_fn, client_id):
+        """客户端本地 MAML 更新, 返回参数增量与统计"""
+        local_vars = self._local_params()
+        optimizer = torch.optim.Adam(local_vars, lr=self.outer_lr,
+                                     weight_decay=self.weight_decay)
+
+        total_loss, total_acc, n = 0.0, 0.0, 0
+        for _ in range(self.local_meta_steps):
+            sx, sy, qx, qy = sampler_fn(client_id)
+            sx, sy = sx.to(self.device), sy.to(self.device)
+            qx, qy = qx.to(self.device), qy.to(self.device)
+
+            optimizer.zero_grad()
+            adapted = self.inner_loop(sx, sy, local_vars,
+                                      create_graph=not self.first_order)
+            q_logits = self.model(qx, vars=adapted, bn_training=True)
+            q_loss = F.cross_entropy(q_logits, qy)
+            q_loss.backward()
+            torch.nn.utils.clip_grad_norm_(local_vars, self.grad_clip)
+            optimizer.step()
+
+            with torch.no_grad():
+                acc = (q_logits.argmax(1) == qy).float().mean().item()
+            total_loss += q_loss.item(); total_acc += acc; n += 1
+
+        theta_delta = [nv.detach() - ov.detach()
+                       for nv, ov in zip(local_vars, self.model.vars)]
+        return {
+            'theta_delta': theta_delta,
+            'loss': total_loss / n if n else 0.0,
+            'accuracy': total_acc / n if n else 0.0,
+            'steps': n,
+        }
+
+    def aggregate(self, updates, weights):
+        total = sum(weights)
+        weights = [w / total for w in weights]
+        with torch.no_grad():
+            for i, param in enumerate(self.model.vars):
+                agg = torch.zeros_like(param)
+                for u, w in zip(updates, weights):
+                    agg += w * u['theta_delta'][i]
+                param.data += agg
+
+    def train_round(self, sampler_fn):
+        selected = self.select_clients()
+        updates, weights = [], []
+        for cid in selected:
+            u = self.client_update(sampler_fn, cid)
+            updates.append(u); weights.append(u['steps'])
+        self.aggregate(updates, weights)
+        return {
+            'selected_clients': selected,
+            'loss': float(np.mean([u['loss'] for u in updates])),
+            'accuracy': float(np.mean([u['accuracy'] for u in updates])),
+        }
+
+    def adapt_and_evaluate(self, support_x, support_y, query_x, query_y):
+        support_x, support_y = support_x.to(self.device), support_y.to(self.device)
+        query_x, query_y = query_x.to(self.device), query_y.to(self.device)
+        vars = [p.clone().detach().requires_grad_(True) for p in self.model.vars]
+        with torch.enable_grad():
+            adapted = self.inner_loop(support_x, support_y, vars, create_graph=False)
+        with torch.no_grad():
+            logits = self.model(query_x, vars=adapted, bn_training=True)
+            loss = F.cross_entropy(logits, query_y).item()
+            acc = (logits.argmax(1) == query_y).float().mean().item()
+        return loss, acc
+
+    def evaluate_episodes(self, episodes):
+        losses, accs = [], []
+        for sx, sy, qx, qy in episodes:
+            l, a = self.adapt_and_evaluate(sx, sy, qx, qy)
+            losses.append(l); accs.append(a)
+        return float(np.mean(losses)), float(np.mean(accs)), float(np.std(accs))
+
+
+class FedPerMetaSGD(FedPerMAML):
+    """
+    固定类别版 Per-FedAvg + Meta-SGD
+
+    在 FedPerMAML 基础上引入可学习的逐参数学习率向量 α (与 θ 同形状):
+    - 内层更新: θ' = θ - α ⊙ ∇θ L
+    - α 是全局元参数, 与 θ 一同在外层优化、聚合
+    - 相比标量 inner_lr, 每个参数有独立学习率/方向, 适应更快更稳
+    """
+
+    def __init__(self, model, alpha_init=0.01, alpha_lr=0.001, **kwargs):
+        super().__init__(model, **kwargs)
+        self.alpha_lr = alpha_lr
+        # 全局学习率向量 (与 θ 同形状), 存为普通 tensor (非 nn.Parameter)
+        self.alpha = [torch.ones_like(p, device=self.device) * alpha_init
+                      for p in self.model.vars]
+
+    def inner_loop(self, support_x, support_y, vars, create_graph, alpha=None):
+        if alpha is None:
+            alpha = self.alpha
+        for _ in range(self.inner_steps):
+            logits = self.model(support_x, vars=vars, bn_training=True)
+            loss = F.cross_entropy(logits, support_y)
+            grads = autograd.grad(loss, vars, create_graph=create_graph)
+            vars = [v - a * g for v, a, g in zip(vars, alpha, grads)]
+        return vars
+
+    def client_update(self, sampler_fn, client_id):
+        local_vars = self._local_params()
+        local_alpha = [a.clone().detach().requires_grad_(True) for a in self.alpha]
+        optimizer = torch.optim.Adam(
+            [{'params': local_vars, 'lr': self.outer_lr,
+              'weight_decay': self.weight_decay},
+             {'params': local_alpha, 'lr': self.alpha_lr, 'weight_decay': 0.0}]
+        )
+
+        total_loss, total_acc, n = 0.0, 0.0, 0
+        for _ in range(self.local_meta_steps):
+            sx, sy, qx, qy = sampler_fn(client_id)
+            sx, sy = sx.to(self.device), sy.to(self.device)
+            qx, qy = qx.to(self.device), qy.to(self.device)
+
+            optimizer.zero_grad()
+            adapted = self.inner_loop(sx, sy, local_vars,
+                                      create_graph=not self.first_order,
+                                      alpha=local_alpha)
+            q_logits = self.model(qx, vars=adapted, bn_training=True)
+            q_loss = F.cross_entropy(q_logits, qy)
+            q_loss.backward()
+            torch.nn.utils.clip_grad_norm_(local_vars, self.grad_clip)
+            torch.nn.utils.clip_grad_norm_(local_alpha, self.grad_clip)
+            optimizer.step()
+            with torch.no_grad():
+                for a in local_alpha:
+                    a.clamp_(min=1e-6, max=1.0)
+                acc = (q_logits.argmax(1) == qy).float().mean().item()
+            total_loss += q_loss.item(); total_acc += acc; n += 1
+
+        theta_delta = [nv.detach() - ov.detach()
+                       for nv, ov in zip(local_vars, self.model.vars)]
+        alpha_delta = [na.detach() - oa.detach()
+                       for na, oa in zip(local_alpha, self.alpha)]
+        return {
+            'theta_delta': theta_delta,
+            'alpha_delta': alpha_delta,
+            'loss': total_loss / n if n else 0.0,
+            'accuracy': total_acc / n if n else 0.0,
+            'steps': n,
+        }
+
+    def aggregate(self, updates, weights):
+        total = sum(weights)
+        weights = [w / total for w in weights]
+        with torch.no_grad():
+            for i, param in enumerate(self.model.vars):
+                agg = torch.zeros_like(param)
+                for u, w in zip(updates, weights):
+                    agg += w * u['theta_delta'][i]
+                param.data += agg
+            for i in range(len(self.alpha)):
+                agg = torch.zeros_like(self.alpha[i])
+                for u, w in zip(updates, weights):
+                    agg += w * u['alpha_delta'][i]
+                self.alpha[i] += agg
+                self.alpha[i].clamp_(min=1e-6, max=1.0)
+
+
 if __name__ == '__main__':
     from conv1d import Conv1D4, Conv1D4Functional
 

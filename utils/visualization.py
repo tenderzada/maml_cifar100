@@ -128,6 +128,71 @@ def plot_comparison(results_dict, save_path=None):
     plt.close()
 
 
+def plot_fed_comparison(history, save_dir, prefix='cifar_fed_compare'):
+    """
+    绘制联邦三方法对比的两幅图: loss vs round, accuracy vs round
+
+    Args:
+        history: {method_name: {'rounds':[...], 'loss':[...],
+                                'acc':[...], 'acc_std':[...]}}
+        save_dir: 输出目录
+        prefix: 文件名前缀
+
+    Returns:
+        (loss_path, acc_path)
+    """
+    import os
+    os.makedirs(save_dir, exist_ok=True)
+
+    colors = {
+        'FedAvg': '#1f77b4',
+        'FedAvg+MAML': '#ff7f0e',
+        'FedAvg+Meta-SGD': '#2ca02c',
+    }
+
+    def color_for(name, i):
+        return colors.get(name, plt.cm.tab10(i % 10))
+
+    # 图1: Loss vs round
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for i, (method, h) in enumerate(history.items()):
+        ax.plot(h['rounds'], h['loss'], marker='o', markersize=3,
+                label=method, color=color_for(method, i))
+    ax.set_xlabel('Communication Round')
+    ax.set_ylabel('Test Loss (adapt-then-eval)')
+    ax.set_title('Federated Learning: Test Loss Comparison')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    loss_path = os.path.join(save_dir, f'{prefix}_loss.png')
+    plt.savefig(loss_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Loss plot saved to: {loss_path}")
+
+    # 图2: Accuracy vs round (含 ±std 阴影带, 体现稳定性)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for i, (method, h) in enumerate(history.items()):
+        rounds = np.array(h['rounds'])
+        acc = np.array(h['acc']) * 100
+        c = color_for(method, i)
+        ax.plot(rounds, acc, marker='o', markersize=3, label=method, color=c)
+        if 'acc_std' in h and h['acc_std'] is not None:
+            std = np.array(h['acc_std']) * 100
+            ax.fill_between(rounds, acc - std, acc + std, color=c, alpha=0.15)
+    ax.set_xlabel('Communication Round')
+    ax.set_ylabel('Test Accuracy (%)')
+    ax.set_title('Federated Learning: Test Accuracy Comparison')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    acc_path = os.path.join(save_dir, f'{prefix}_acc.png')
+    plt.savefig(acc_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Accuracy plot saved to: {acc_path}")
+
+    return loss_path, acc_path
+
+
 if __name__ == '__main__':
     # 测试可视化
     # 模拟数据
