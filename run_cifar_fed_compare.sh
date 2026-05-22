@@ -15,12 +15,13 @@ python train_cifar_fed_compare.py \
     --num_classes 20 \
     --num_clients 10 \
     --clients_per_round 5 \
-    --samples_per_client 250 \
-    --rounds 100 \
+    --samples_per_client 500 \
+    --rounds 150 \
     --eval_every 2 \
     --batch_size 32 \
+    --lr_final_ratio 0.02 \
     --local_epochs 3 \
-    --local_lr 0.01 \
+    --local_lr 0.05 \
     --local_meta_steps 5 \
     --inner_lr 0.01 \
     --inner_steps 5 \

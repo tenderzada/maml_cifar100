@@ -38,6 +38,15 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
+def cosine_lr(base_lr, step, total, final_ratio=0.02):
+    """余弦退火至 base_lr*final_ratio; step 从 1 到 total"""
+    if total <= 1:
+        return base_lr
+    lr_min = base_lr * final_ratio
+    progress = (step - 1) / (total - 1)
+    return lr_min + 0.5 * (base_lr - lr_min) * (1 + np.cos(np.pi * progress))
+
+
 def eval_fedavg_adapt(global_model, episodes, inner_steps, inner_lr, device):
     """FedAvg 的 adapt-then-eval: 克隆全局模型, 在 support 上 SGD 微调, 评 query"""
     losses, accs = [], []
@@ -72,6 +81,7 @@ def run_fedavg(args, fed, episodes, device):
     loaders = fed.get_client_loaders()
     hist = {'rounds': [], 'loss': [], 'acc': [], 'acc_std': []}
     for r in range(1, args.rounds + 1):
+        algo.local_lr = cosine_lr(args.local_lr, r, args.rounds, args.lr_final_ratio)
         algo.train_round(loaders)
         if r % args.eval_every == 0 or r == args.rounds:
             loss, acc, std = eval_fedavg_adapt(
@@ -106,6 +116,9 @@ def run_meta(args, fed, episodes, device, method):
 
     hist = {'rounds': [], 'loss': [], 'acc': [], 'acc_std': []}
     for r in range(1, args.rounds + 1):
+        algo.outer_lr = cosine_lr(args.outer_lr, r, args.rounds, args.lr_final_ratio)
+        if method == 'metasgd':
+            algo.alpha_lr = cosine_lr(args.alpha_lr, r, args.rounds, args.lr_final_ratio)
         algo.train_round(sampler_fn)
         if r % args.eval_every == 0 or r == args.rounds:
             loss, acc, std = algo.evaluate_episodes(episodes)
@@ -124,13 +137,15 @@ def main():
     p.add_argument('--num_classes', type=int, default=20)
     p.add_argument('--num_clients', type=int, default=10)
     p.add_argument('--clients_per_round', type=int, default=5)
-    p.add_argument('--samples_per_client', type=int, default=250)
-    p.add_argument('--rounds', type=int, default=100)
+    p.add_argument('--samples_per_client', type=int, default=500)
+    p.add_argument('--rounds', type=int, default=150)
     p.add_argument('--eval_every', type=int, default=2)
     p.add_argument('--batch_size', type=int, default=32)
+    p.add_argument('--lr_final_ratio', type=float, default=0.02,
+                   help='余弦退火终点 = 初始lr * 该比例')
     # FedAvg 本地
     p.add_argument('--local_epochs', type=int, default=3)
-    p.add_argument('--local_lr', type=float, default=0.01)
+    p.add_argument('--local_lr', type=float, default=0.05)
     # 元学习
     p.add_argument('--local_meta_steps', type=int, default=5)
     p.add_argument('--inner_lr', type=float, default=0.01)
