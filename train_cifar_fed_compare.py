@@ -137,7 +137,12 @@ def main():
     p.add_argument('--num_classes', type=int, default=20)
     p.add_argument('--num_clients', type=int, default=10)
     p.add_argument('--clients_per_round', type=int, default=5)
-    p.add_argument('--samples_per_client', type=int, default=500)
+    p.add_argument('--samples_per_client', type=int, default=500,
+                   help='仅 IID 生效; non-IID 用 Dirichlet 分掉全部数据')
+    p.add_argument('--non_iid', action='store_true', default=False,
+                   help='启用 Dirichlet 标签偏斜 + 个性化评测')
+    p.add_argument('--dirichlet_alpha', type=float, default=0.3,
+                   help='Dirichlet 浓度, 越小越异构')
     p.add_argument('--rounds', type=int, default=150)
     p.add_argument('--eval_every', type=int, default=2)
     p.add_argument('--batch_size', type=int, default=32)
@@ -147,13 +152,13 @@ def main():
     p.add_argument('--local_epochs', type=int, default=3)
     p.add_argument('--local_lr', type=float, default=0.05)
     # 元学习
-    p.add_argument('--local_meta_steps', type=int, default=5)
+    p.add_argument('--local_meta_steps', type=int, default=10)
     p.add_argument('--inner_lr', type=float, default=0.01)
     p.add_argument('--inner_steps', type=int, default=5)
     p.add_argument('--outer_lr', type=float, default=0.001)
-    p.add_argument('--alpha_lr', type=float, default=0.001)
-    p.add_argument('--k_support', type=int, default=3)
-    p.add_argument('--k_query', type=int, default=3)
+    p.add_argument('--alpha_lr', type=float, default=0.005)
+    p.add_argument('--k_support', type=int, default=5)
+    p.add_argument('--k_query', type=int, default=5)
     p.add_argument('--first_order', action='store_true', default=True)
     p.add_argument('--second_order', dest='first_order', action='store_false')
     # 评测
@@ -186,8 +191,10 @@ def main():
         num_clients=args.num_clients, samples_per_client=args.samples_per_client,
         batch_size=args.batch_size, k_shot_eval=args.k_shot_eval,
         query_per_class=args.query_per_class, n_eval_episodes=args.n_eval_episodes,
+        iid=not args.non_iid, dirichlet_alpha=args.dirichlet_alpha,
         augment=True, seed=args.seed, download=args.download)
-    print(f"Selected classes ({args.num_classes}): {fed.classes}")
+    split = 'IID' if not args.non_iid else f'non-IID (Dirichlet α={args.dirichlet_alpha})'
+    print(f"Selected classes ({args.num_classes}): {fed.classes} | split: {split}")
     episodes = fed.get_eval_episodes()
 
     history = {}

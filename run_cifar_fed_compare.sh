@@ -15,20 +15,21 @@ python train_cifar_fed_compare.py \
     --num_classes 20 \
     --num_clients 10 \
     --clients_per_round 5 \
-    --samples_per_client 500 \
+    --non_iid \
+    --dirichlet_alpha 0.3 \
     --rounds 150 \
     --eval_every 2 \
     --batch_size 32 \
     --lr_final_ratio 0.02 \
     --local_epochs 3 \
     --local_lr 0.05 \
-    --local_meta_steps 5 \
+    --local_meta_steps 10 \
     --inner_lr 0.01 \
     --inner_steps 5 \
     --outer_lr 0.001 \
-    --alpha_lr 0.001 \
-    --k_support 3 \
-    --k_query 3 \
+    --alpha_lr 0.005 \
+    --k_support 5 \
+    --k_query 5 \
     --k_shot_eval 5 \
     --query_per_class 30 \
     --n_eval_episodes 5 \

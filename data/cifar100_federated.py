@@ -69,6 +69,7 @@ class FederatedCIFAR100:
     def __init__(self, root, num_classes=20, num_clients=10,
                  samples_per_client=250, batch_size=32,
                  k_shot_eval=5, query_per_class=30, n_eval_episodes=5,
+                 iid=True, dirichlet_alpha=0.3,
                  augment=True, seed=42, download=True):
         self.num_classes = num_classes
         self.num_clients = num_clients
@@ -77,6 +78,8 @@ class FederatedCIFAR100:
         self.k_shot_eval = k_shot_eval
         self.query_per_class = query_per_class
         self.n_eval_episodes = n_eval_episodes
+        self.iid = iid
+        self.dirichlet_alpha = dirichlet_alpha
         self.seed = seed
 
         self.train_tf = _train_transform() if augment else _eval_transform()
@@ -94,13 +97,21 @@ class FederatedCIFAR100:
 
         self.test_x, self.test_y = test_x, test_y
 
-        # 按类组织 test (用于 eval episode 采样)
+        # 按类组织 test (IID 全局 eval episode 采样用)
         self.test_by_class = defaultdict(list)
         for i, y in enumerate(test_y):
             self.test_by_class[int(y)].append(i)
 
-        # IID 划分训练数据到客户端
-        self._partition_iid(train_x, train_y)
+        # 客户端测试分区 (non-IID 个性化评测用)
+        self.client_test_x = None
+        self.client_test_y = None
+        self.client_test_by_class = None
+
+        # 划分训练数据到客户端
+        if self.iid:
+            self._partition_iid(train_x, train_y)
+        else:
+            self._partition_dirichlet(train_x, train_y, test_x, test_y)
 
         # 固定一组 eval episodes (跨方法/跨轮次复用, 保证可比)
         self._eval_episodes = None
@@ -137,6 +148,55 @@ class FederatedCIFAR100:
             for li, yy in enumerate(cy):
                 by_cls[int(yy)].append(li)
             self.client_by_class.append(by_cls)
+
+    def _partition_dirichlet(self, train_x, train_y, test_x, test_y):
+        """
+        non-IID 标签偏斜划分: 每个类的样本按 Dirichlet(alpha) 比例分到各客户端
+
+        train 与 test 用同一组 per-class 比例, 使每个客户端的训练/测试分布一致
+        (个性化评测要求 test 与该客户端训练分布同分布)。
+        alpha 越小越异构。
+        """
+        rng = np.random.RandomState(self.seed)
+        nc = self.num_clients
+
+        train_idx = [[] for _ in range(nc)]
+        test_idx = [[] for _ in range(nc)]
+
+        for cls in range(self.num_classes):
+            props = rng.dirichlet([self.dirichlet_alpha] * nc)  # 长度 nc
+
+            tr_c = np.where(train_y == cls)[0]
+            rng.shuffle(tr_c)
+            tr_split = (np.cumsum(props)[:-1] * len(tr_c)).astype(int)
+            for cid, part in enumerate(np.split(tr_c, tr_split)):
+                train_idx[cid].extend(part.tolist())
+
+            te_c = np.where(test_y == cls)[0]
+            rng.shuffle(te_c)
+            te_split = (np.cumsum(props)[:-1] * len(te_c)).astype(int)
+            for cid, part in enumerate(np.split(te_c, te_split)):
+                test_idx[cid].extend(part.tolist())
+
+        self.client_x, self.client_y, self.client_by_class = [], [], []
+        self.client_test_x, self.client_test_y, self.client_test_by_class = [], [], []
+        for cid in range(nc):
+            tr = np.array(train_idx[cid], dtype=int)
+            rng.shuffle(tr)
+            cx, cy = train_x[tr], train_y[tr]
+            self.client_x.append(cx); self.client_y.append(cy)
+            by_cls = defaultdict(list)
+            for li, yy in enumerate(cy):
+                by_cls[int(yy)].append(li)
+            self.client_by_class.append(by_cls)
+
+            te = np.array(test_idx[cid], dtype=int)
+            tex, tey = test_x[te], test_y[te]
+            self.client_test_x.append(tex); self.client_test_y.append(tey)
+            tby = defaultdict(list)
+            for li, yy in enumerate(tey):
+                tby[int(yy)].append(li)
+            self.client_test_by_class.append(tby)
 
     # ------------------------------------------------------------------
     # FedAvg: 标准本地训练 DataLoader
@@ -198,10 +258,23 @@ class FederatedCIFAR100:
     # adapt-then-eval 评测 episode (固定复用)
     # ------------------------------------------------------------------
     def get_eval_episodes(self):
+        """
+        IID:     全局 episode (每类从全局测试集抽 support/query)
+        non-IID: 个性化 episode (每客户端在自己分布的测试分区上 adapt-then-eval)
+        episode 准确率的跨 episode 标准差反映 (IID) 采样波动 / (non-IID) 客户端异构,
+        是稳定性对比的依据。
+        """
         if self._eval_episodes is not None:
             return self._eval_episodes
 
         rng = random.Random(self.seed + 12345)
+        if self.iid:
+            self._eval_episodes = self._global_episodes(rng)
+        else:
+            self._eval_episodes = self._personalized_episodes(rng)
+        return self._eval_episodes
+
+    def _global_episodes(self, rng):
         episodes = []
         for _ in range(self.n_eval_episodes):
             s_imgs, s_lbls, q_imgs, q_lbls = [], [], [], []
@@ -214,13 +287,41 @@ class FederatedCIFAR100:
                     s_imgs.append(self.test_x[i]); s_lbls.append(cls)
                 for i in q_idx:
                     q_imgs.append(self.test_x[i]); q_lbls.append(cls)
-            support_x = self._apply(self.eval_tf, s_imgs)
-            support_y = torch.tensor(s_lbls, dtype=torch.long)
-            query_x = self._apply(self.eval_tf, q_imgs)
-            query_y = torch.tensor(q_lbls, dtype=torch.long)
-            episodes.append((support_x, support_y, query_x, query_y))
+            episodes.append((
+                self._apply(self.eval_tf, s_imgs),
+                torch.tensor(s_lbls, dtype=torch.long),
+                self._apply(self.eval_tf, q_imgs),
+                torch.tensor(q_lbls, dtype=torch.long),
+            ))
+        return episodes
 
-        self._eval_episodes = episodes
+    def _personalized_episodes(self, rng):
+        """每个客户端一个 episode: 在其测试分区上抽 support/query (绝对 20-way 标签)"""
+        episodes = []
+        for cid in range(self.num_clients):
+            tby = self.client_test_by_class[cid]
+            tex = self.client_test_x[cid]
+            s_imgs, s_lbls, q_imgs, q_lbls = [], [], [], []
+            for cls, pool in tby.items():
+                pool = list(pool)
+                rng.shuffle(pool)
+                if len(pool) < 2:
+                    continue
+                k = min(self.k_shot_eval, max(1, len(pool) // 2))
+                s_idx = pool[:k]
+                q_idx = pool[k:k + self.query_per_class]
+                for i in s_idx:
+                    s_imgs.append(tex[i]); s_lbls.append(cls)
+                for i in q_idx:
+                    q_imgs.append(tex[i]); q_lbls.append(cls)
+            if len(s_imgs) == 0 or len(q_imgs) == 0:
+                continue
+            episodes.append((
+                self._apply(self.eval_tf, s_imgs),
+                torch.tensor(s_lbls, dtype=torch.long),
+                self._apply(self.eval_tf, q_imgs),
+                torch.tensor(q_lbls, dtype=torch.long),
+            ))
         return episodes
 
 
