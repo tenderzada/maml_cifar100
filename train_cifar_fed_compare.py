@@ -189,6 +189,8 @@ def main():
                    help='本次运行哪些方法; 跳过 fedavg 时需 --fedavg_history')
     p.add_argument('--fedavg_history', type=str, default=None,
                    help='已保存的 FedAvg history JSON 路径; 跳过 fedavg 时加载')
+    p.add_argument('--rerun_fedavg', action='store_true', default=False,
+                   help='强制重训 FedAvg, 即使本地已有保存的 history')
     p.add_argument('--save_tag', type=str, default='',
                    help='保存文件名后缀, 便于区分不同 run')
     p.add_argument('--num_classes', type=int, default=20)
@@ -254,6 +256,22 @@ def main():
     print(f"Using device: {device}")
     os.makedirs(args.save_dir, exist_ok=True)
     set_seed(args.seed)
+
+    # 自动跳过 FedAvg: 若本地已有保存的 history 且未要求重训
+    if ('fedavg' in args.methods and not args.rerun_fedavg
+            and args.fedavg_history is None):
+        import glob
+        cands = sorted(glob.glob(os.path.join(args.save_dir,
+                                              'fedavg*_history.json')))
+        if cands:
+            args.fedavg_history = cands[-1]
+            args.methods = [m for m in args.methods if m != 'fedavg']
+            print(f"[auto] 检测到 FedAvg 历史 -> 跳过训练, 加载: {args.fedavg_history}")
+            if len(cands) > 1:
+                print(f"[auto] 备选: {cands[:-1]} (用最新; 指定 --fedavg_history 可覆盖)")
+    if args.fedavg_history and 'fedavg' in args.methods:
+        # 用户显式给了 history 但 methods 仍含 fedavg, 默认跳过训练
+        args.methods = [m for m in args.methods if m != 'fedavg']
 
     fed = FederatedCIFAR100(
         root=args.data_root, num_classes=args.num_classes,
