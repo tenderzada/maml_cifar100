@@ -83,6 +83,38 @@ class ResNetCIFAR(nn.Module):
         return self.fc(x)
 
 
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, in_planes, planes, stride=1):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_planes, planes, 1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes, momentum=1.0,
+                                  track_running_stats=False)
+        self.conv2 = nn.Conv2d(planes, planes, 3, stride=stride,
+                               padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes, momentum=1.0,
+                                  track_running_stats=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, 1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=1.0,
+                                  track_running_stats=False)
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != planes * self.expansion:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_planes, planes * self.expansion, 1,
+                          stride=stride, bias=False),
+                nn.BatchNorm2d(planes * self.expansion, momentum=1.0,
+                               track_running_stats=False),
+            )
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)), inplace=True)
+        out = F.relu(self.bn2(self.conv2(out)), inplace=True)
+        out = self.bn3(self.conv3(out))
+        out = out + self.shortcut(x)
+        return F.relu(out, inplace=True)
+
+
 def resnet18_cifar(num_classes=20):
     return ResNetCIFAR(BasicBlock, [2, 2, 2, 2], num_classes)
 
@@ -91,8 +123,14 @@ def resnet34_cifar(num_classes=20):
     return ResNetCIFAR(BasicBlock, [3, 4, 6, 3], num_classes)
 
 
+def resnet50_cifar(num_classes=20):
+    return ResNetCIFAR(Bottleneck, [3, 4, 6, 3], num_classes)
+
+
 if __name__ == '__main__':
-    for name, fn in [('resnet18', resnet18_cifar), ('resnet34', resnet34_cifar)]:
+    for name, fn in [('resnet18', resnet18_cifar),
+                     ('resnet34', resnet34_cifar),
+                     ('resnet50', resnet50_cifar)]:
         m = fn(num_classes=20)
         n = sum(p.numel() for p in m.parameters())
         x = torch.randn(2, 3, 32, 32)

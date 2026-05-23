@@ -26,7 +26,7 @@ import torch.nn.functional as F
 
 from data.cifar100_federated import FederatedCIFAR100
 from models.resnet import ResNet12
-from models.resnet_cifar import resnet18_cifar, resnet34_cifar
+from models.resnet_cifar import resnet18_cifar, resnet34_cifar, resnet50_cifar
 from models.vit import vit_tiny_cifar, vit_small_cifar, vit_base_cifar
 from models.federated import FedAvg
 from models.federated_per import FedPerMAML, FedPerMetaSGD
@@ -34,7 +34,7 @@ from utils.visualization import plot_fed_comparison
 
 
 BACKBONE_CHOICES = ['resnet12', 'resnet12_large', 'resnet18', 'resnet34',
-                    'vit_tiny', 'vit_small', 'vit_base']
+                    'resnet50', 'vit_tiny', 'vit_small', 'vit_base']
 
 
 def build_backbone(name, num_classes, channels=None):
@@ -43,6 +43,8 @@ def build_backbone(name, num_classes, channels=None):
         return resnet18_cifar(num_classes=num_classes)
     if name == 'resnet34':
         return resnet34_cifar(num_classes=num_classes)
+    if name == 'resnet50':
+        return resnet50_cifar(num_classes=num_classes)
     if name == 'resnet12':
         ch = channels or [64, 128, 256, 512]
         return ResNet12(in_channels=3, channels=ch, n_way=num_classes, drop_rate=0.1)
@@ -82,6 +84,25 @@ def try_warm_start(meta_model, fedavg_model):
         return True
     except Exception:
         return False
+
+
+def load_pretrained_meta(model, ckpt_path):
+    """加载预训练 backbone 权重 (不含 fc/head 层, 因为类别数不同).
+
+    返回 (loaded_count, skipped_count). 形状不符的层自动跳过 (典型: fc.weight, fc.bias).
+    """
+    ckpt = torch.load(ckpt_path, map_location='cpu')
+    state = ckpt.get('state_dict', ckpt)
+    own = model.state_dict()
+    loaded, skipped = 0, []
+    for k, v in state.items():
+        if k in own and own[k].shape == v.shape:
+            own[k] = v
+            loaded += 1
+        else:
+            skipped.append(k)
+    model.load_state_dict(own)
+    return loaded, skipped
 
 
 def eval_fedavg_adapt(global_model, episodes, inner_steps, inner_lr, device):
@@ -138,6 +159,11 @@ def run_meta(args, fed, episodes, device, method, warm_start_model=None):
                            channels=args.meta_channels)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"  meta backbone: {args.meta_backbone} | params: {n_params/1e6:.2f}M")
+    if args.pretrained_meta:
+        loaded, skipped = load_pretrained_meta(model, args.pretrained_meta)
+        skipped_short = skipped if len(skipped) <= 4 else skipped[:4] + ['...']
+        print(f"  loaded pretrained ({loaded} tensors) from {args.pretrained_meta}")
+        print(f"    skipped (head/shape-mismatch): {skipped_short}")
     if warm_start_model is not None:
         ok = try_warm_start(model, warm_start_model)
         print("  warm-started from FedAvg weights" if ok
@@ -232,8 +258,10 @@ def main():
     # 模型/正则
     p.add_argument('--backbone', type=str, default='resnet18',
                    choices=BACKBONE_CHOICES, help='FedAvg 骨干')
-    p.add_argument('--meta_backbone', type=str, default='vit_base',
+    p.add_argument('--meta_backbone', type=str, default='resnet50',
                    choices=BACKBONE_CHOICES, help='MAML/Meta-SGD 骨干')
+    p.add_argument('--pretrained_meta', type=str, default=None,
+                   help='预训练 backbone 检查点路径 (fc 层不加载, 保留为新的 num_classes)')
     p.add_argument('--channels', type=int, nargs='+', default=[64, 128, 256, 512],
                    help='resnet12 通道数 (仅在 --backbone resnet12 时使用)')
     p.add_argument('--meta_channels', type=int, nargs='+', default=[64, 128, 256, 512],
