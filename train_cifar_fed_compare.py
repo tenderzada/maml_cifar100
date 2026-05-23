@@ -47,6 +47,27 @@ def cosine_lr(base_lr, step, total, final_ratio=0.02):
     return lr_min + 0.5 * (base_lr - lr_min) * (1 + np.cos(np.pi * progress))
 
 
+def copy_resnet12_to_functional(std_model, func_model):
+    """
+    把标准 ResNet12 的权重按顺序拷贝到 ResNet12Functional 的 vars 中
+
+    两者参数排列同序: 每 stage 12 个 (3*(conv,bn_w,bn_b) + (ds_conv,ds_bn_w,ds_bn_b)),
+    末尾 (fc.weight, fc.bias). 形状已在设计时对齐。
+    用于 meta 从 FedAvg warm-start.
+    """
+    std_params = list(std_model.state_dict().values())
+    func_params = list(func_model.vars)
+    if len(std_params) != len(func_params):
+        raise RuntimeError(
+            f"param count mismatch: std={len(std_params)} vs func={len(func_params)}")
+    with torch.no_grad():
+        for i, (sp, fp) in enumerate(zip(std_params, func_params)):
+            if sp.shape != fp.shape:
+                raise RuntimeError(
+                    f"param {i} shape mismatch: std{tuple(sp.shape)} vs func{tuple(fp.shape)}")
+            fp.data.copy_(sp.data)
+
+
 def eval_fedavg_adapt(global_model, episodes, inner_steps, inner_lr, device):
     """FedAvg 的 adapt-then-eval: 克隆全局模型, 在 support 上 SGD 微调, 评 query"""
     losses, accs = [], []
@@ -89,15 +110,18 @@ def run_fedavg(args, fed, episodes, device):
             hist['rounds'].append(r); hist['loss'].append(loss)
             hist['acc'].append(acc); hist['acc_std'].append(std)
             print(f"  round {r:3d} | test loss {loss:.4f} | acc {acc*100:.2f}% ± {std*100:.2f}%")
-    return hist
+    return hist, algo.global_model
 
 
-def run_meta(args, fed, episodes, device, method):
+def run_meta(args, fed, episodes, device, method, warm_start_model=None):
     set_seed(args.seed)
     tag = {'maml': '[2/3] FedAvg+MAML', 'metasgd': '[3/3] FedAvg+Meta-SGD'}[method]
     print('\n' + '=' * 60 + f'\n{tag}\n' + '=' * 60)
     model = ResNet12Functional(in_channels=3, channels=args.channels,
                                n_way=args.num_classes, drop_rate=args.drop_rate)
+    if warm_start_model is not None:
+        copy_resnet12_to_functional(warm_start_model, model)
+        print("  warm-started from FedAvg weights")
     common = dict(num_clients=args.num_clients,
                   clients_per_round=args.clients_per_round,
                   inner_lr=args.inner_lr, inner_steps=args.inner_steps,
@@ -110,9 +134,15 @@ def run_meta(args, fed, episodes, device, method):
         algo = FedPerMetaSGD(model, alpha_init=args.inner_lr,
                              alpha_lr=args.alpha_lr, **common)
 
-    def sampler_fn(cid):
-        return fed.sample_meta_batch(cid, k_support=args.k_support,
-                                     k_query=args.k_query, augment=True)
+    if args.non_iid:
+        n_support = args.k_support * args.num_classes
+        n_query = args.k_query * args.num_classes
+        def sampler_fn(cid):
+            return fed.sample_meta_batch_random(cid, n_support, n_query, augment=True)
+    else:
+        def sampler_fn(cid):
+            return fed.sample_meta_batch(cid, k_support=args.k_support,
+                                         k_query=args.k_query, augment=True)
 
     hist = {'rounds': [], 'loss': [], 'acc': [], 'acc_std': []}
     for r in range(1, args.rounds + 1):
@@ -161,6 +191,10 @@ def main():
     p.add_argument('--k_query', type=int, default=5)
     p.add_argument('--first_order', action='store_true', default=True)
     p.add_argument('--second_order', dest='first_order', action='store_false')
+    p.add_argument('--warm_start_meta', action='store_true', default=True,
+                   help='meta 方法从 FedAvg 训练后权重初始化 (推荐)')
+    p.add_argument('--no_warm_start_meta', dest='warm_start_meta',
+                   action='store_false')
     # 评测
     p.add_argument('--k_shot_eval', type=int, default=5)
     p.add_argument('--query_per_class', type=int, default=30)
@@ -195,12 +229,18 @@ def main():
         augment=True, seed=args.seed, download=args.download)
     split = 'IID' if not args.non_iid else f'non-IID (Dirichlet α={args.dirichlet_alpha})'
     print(f"Selected classes ({args.num_classes}): {fed.classes} | split: {split}")
+    if args.non_iid:
+        fed.report_partition()
     episodes = fed.get_eval_episodes()
+    print(f"Eval episodes: {len(episodes)}")
 
     history = {}
-    history['FedAvg'] = run_fedavg(args, fed, episodes, device)
-    history['FedAvg+MAML'] = run_meta(args, fed, episodes, device, 'maml')
-    history['FedAvg+Meta-SGD'] = run_meta(args, fed, episodes, device, 'metasgd')
+    history['FedAvg'], fedavg_model = run_fedavg(args, fed, episodes, device)
+    warm = fedavg_model if args.warm_start_meta else None
+    history['FedAvg+MAML'] = run_meta(args, fed, episodes, device, 'maml',
+                                      warm_start_model=warm)
+    history['FedAvg+Meta-SGD'] = run_meta(args, fed, episodes, device, 'metasgd',
+                                          warm_start_model=warm)
 
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     prefix = f"cifar_fed_compare_{args.num_classes}cls_{ts}"

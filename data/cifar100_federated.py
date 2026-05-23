@@ -254,6 +254,41 @@ class FederatedCIFAR100:
         query_y = torch.tensor(q_lbls, dtype=torch.long)
         return support_x, support_y, query_x, query_y
 
+    def sample_meta_batch_random(self, client_id, n_support, n_query, augment=True):
+        """
+        non-IID 元采样: 直接从客户端本地数据随机采 (反映其真实分布)
+
+        不强制类均衡 -- 这是 Per-FedAvg 在异构客户端上的标准做法。
+        样本不足时启用替换采样, 但因为按总数采且分布与客户端一致, 不会引发
+        与"强制 20 类"相同的退化。
+        """
+        tf = self.train_tf if augment else self.eval_tf
+        cx = self.client_x[client_id]
+        n = len(cx)
+        if n == 0:
+            raise ValueError(f"client {client_id} has no local samples")
+        replace = n < (n_support + n_query)
+        idx = np.random.choice(n, size=n_support + n_query, replace=replace)
+        s_idx, q_idx = idx[:n_support], idx[n_support:]
+        s_imgs = [cx[i] for i in s_idx]
+        q_imgs = [cx[i] for i in q_idx]
+        s_lbls = self.client_y[client_id][s_idx]
+        q_lbls = self.client_y[client_id][q_idx]
+        return (self._apply(tf, s_imgs),
+                torch.tensor(s_lbls, dtype=torch.long),
+                self._apply(tf, q_imgs),
+                torch.tensor(q_lbls, dtype=torch.long))
+
+    def report_partition(self):
+        """打印客户端类分布统计 (用于核对 non-IID 偏斜程度)"""
+        print("[partition] per-client (size, #classes, top-3 classes):")
+        for cid in range(self.num_clients):
+            sizes = [(c, len(idxs)) for c, idxs in self.client_by_class[cid].items()]
+            sizes.sort(key=lambda x: -x[1])
+            total = sum(s for _, s in sizes)
+            top3 = ", ".join(f"{c}:{s}" for c, s in sizes[:3])
+            print(f"  client {cid}: n={total:4d}, classes={len(sizes):2d}, top: {top3}")
+
     # ------------------------------------------------------------------
     # adapt-then-eval 评测 episode (固定复用)
     # ------------------------------------------------------------------
