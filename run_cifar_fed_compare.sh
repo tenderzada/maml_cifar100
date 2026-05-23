@@ -34,7 +34,7 @@ python train_cifar_fed_compare.py \
     --query_per_class 30 \
     --n_eval_episodes 5 \
     --backbone resnet18 \
-    --meta_backbone resnet34 \
+    --meta_backbone vit_base \
     --drop_rate 0.1 \
     --weight_decay 5e-4 \
     --first_order \

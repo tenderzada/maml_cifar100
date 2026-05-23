@@ -27,9 +27,14 @@ import torch.nn.functional as F
 from data.cifar100_federated import FederatedCIFAR100
 from models.resnet import ResNet12
 from models.resnet_cifar import resnet18_cifar, resnet34_cifar
+from models.vit import vit_tiny_cifar, vit_small_cifar, vit_base_cifar
 from models.federated import FedAvg
 from models.federated_per import FedPerMAML, FedPerMetaSGD
 from utils.visualization import plot_fed_comparison
+
+
+BACKBONE_CHOICES = ['resnet12', 'resnet12_large', 'resnet18', 'resnet34',
+                    'vit_tiny', 'vit_small', 'vit_base']
 
 
 def build_backbone(name, num_classes, channels=None):
@@ -44,6 +49,12 @@ def build_backbone(name, num_classes, channels=None):
     if name == 'resnet12_large':
         return ResNet12(in_channels=3, channels=[64, 160, 320, 640],
                         n_way=num_classes, drop_rate=0.1)
+    if name == 'vit_tiny':
+        return vit_tiny_cifar(num_classes=num_classes)
+    if name == 'vit_small':
+        return vit_small_cifar(num_classes=num_classes)
+    if name == 'vit_base':
+        return vit_base_cifar(num_classes=num_classes)
     raise ValueError(f"Unknown backbone: {name}")
 
 
@@ -218,11 +229,9 @@ def main():
     p.add_argument('--n_eval_episodes', type=int, default=5)
     # 模型/正则
     p.add_argument('--backbone', type=str, default='resnet18',
-                   choices=['resnet12', 'resnet12_large', 'resnet18', 'resnet34'],
-                   help='FedAvg 骨干')
-    p.add_argument('--meta_backbone', type=str, default='resnet34',
-                   choices=['resnet12', 'resnet12_large', 'resnet18', 'resnet34'],
-                   help='MAML/Meta-SGD 骨干')
+                   choices=BACKBONE_CHOICES, help='FedAvg 骨干')
+    p.add_argument('--meta_backbone', type=str, default='vit_base',
+                   choices=BACKBONE_CHOICES, help='MAML/Meta-SGD 骨干')
     p.add_argument('--channels', type=int, nargs='+', default=[64, 128, 256, 512],
                    help='resnet12 通道数 (仅在 --backbone resnet12 时使用)')
     p.add_argument('--meta_channels', type=int, nargs='+', default=[64, 128, 256, 512],
