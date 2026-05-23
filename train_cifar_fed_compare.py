@@ -25,9 +25,26 @@ import torch
 import torch.nn.functional as F
 
 from data.cifar100_federated import FederatedCIFAR100
-from models.resnet import ResNet12, ResNet12Functional
-from models.federated import FedAvg, FedPerMAML, FedPerMetaSGD
+from models.resnet import ResNet12
+from models.resnet_cifar import resnet18_cifar, resnet34_cifar
+from models.federated import FedAvg
+from models.federated_per import FedPerMAML, FedPerMetaSGD
 from utils.visualization import plot_fed_comparison
+
+
+def build_backbone(name, num_classes, channels=None):
+    """统一的骨干工厂. 任意 nn.Module 均可被 FedAvg 与新版 FedPerMAML/MetaSGD 使用."""
+    if name == 'resnet18':
+        return resnet18_cifar(num_classes=num_classes)
+    if name == 'resnet34':
+        return resnet34_cifar(num_classes=num_classes)
+    if name == 'resnet12':
+        ch = channels or [64, 128, 256, 512]
+        return ResNet12(in_channels=3, channels=ch, n_way=num_classes, drop_rate=0.1)
+    if name == 'resnet12_large':
+        return ResNet12(in_channels=3, channels=[64, 160, 320, 640],
+                        n_way=num_classes, drop_rate=0.1)
+    raise ValueError(f"Unknown backbone: {name}")
 
 
 def set_seed(seed):
@@ -47,25 +64,13 @@ def cosine_lr(base_lr, step, total, final_ratio=0.02):
     return lr_min + 0.5 * (base_lr - lr_min) * (1 + np.cos(np.pi * progress))
 
 
-def copy_resnet12_to_functional(std_model, func_model):
-    """
-    把标准 ResNet12 的权重按顺序拷贝到 ResNet12Functional 的 vars 中
-
-    两者参数排列同序: 每 stage 12 个 (3*(conv,bn_w,bn_b) + (ds_conv,ds_bn_w,ds_bn_b)),
-    末尾 (fc.weight, fc.bias). 形状已在设计时对齐。
-    用于 meta 从 FedAvg warm-start.
-    """
-    std_params = list(std_model.state_dict().values())
-    func_params = list(func_model.vars)
-    if len(std_params) != len(func_params):
-        raise RuntimeError(
-            f"param count mismatch: std={len(std_params)} vs func={len(func_params)}")
-    with torch.no_grad():
-        for i, (sp, fp) in enumerate(zip(std_params, func_params)):
-            if sp.shape != fp.shape:
-                raise RuntimeError(
-                    f"param {i} shape mismatch: std{tuple(sp.shape)} vs func{tuple(fp.shape)}")
-            fp.data.copy_(sp.data)
+def try_warm_start(meta_model, fedavg_model):
+    """若 meta 与 FedAvg 骨干完全相同, 复制权重作为 warm-start; 否则返回 False."""
+    try:
+        meta_model.load_state_dict(fedavg_model.state_dict(), strict=True)
+        return True
+    except Exception:
+        return False
 
 
 def eval_fedavg_adapt(global_model, episodes, inner_steps, inner_lr, device):
@@ -93,8 +98,9 @@ def eval_fedavg_adapt(global_model, episodes, inner_steps, inner_lr, device):
 def run_fedavg(args, fed, episodes, device):
     set_seed(args.seed)
     print('\n' + '=' * 60 + '\n[1/3] FedAvg\n' + '=' * 60)
-    model = ResNet12(in_channels=3, channels=args.channels,
-                     n_way=args.num_classes, drop_rate=args.drop_rate)
+    model = build_backbone(args.backbone, args.num_classes, channels=args.channels)
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"  FedAvg backbone: {args.backbone} | params: {n_params/1e6:.2f}M")
     algo = FedAvg(global_model=model, num_clients=args.num_clients,
                   clients_per_round=args.clients_per_round,
                   local_epochs=args.local_epochs, local_lr=args.local_lr,
@@ -117,11 +123,14 @@ def run_meta(args, fed, episodes, device, method, warm_start_model=None):
     set_seed(args.seed)
     tag = {'maml': '[2/3] FedAvg+MAML', 'metasgd': '[3/3] FedAvg+Meta-SGD'}[method]
     print('\n' + '=' * 60 + f'\n{tag}\n' + '=' * 60)
-    model = ResNet12Functional(in_channels=3, channels=args.channels,
-                               n_way=args.num_classes, drop_rate=args.drop_rate)
+    model = build_backbone(args.meta_backbone, args.num_classes,
+                           channels=args.meta_channels)
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"  meta backbone: {args.meta_backbone} | params: {n_params/1e6:.2f}M")
     if warm_start_model is not None:
-        copy_resnet12_to_functional(warm_start_model, model)
-        print("  warm-started from FedAvg weights")
+        ok = try_warm_start(model, warm_start_model)
+        print("  warm-started from FedAvg weights" if ok
+              else "  WARNING: backbones differ, skipping warm-start")
     common = dict(num_clients=args.num_clients,
                   clients_per_round=args.clients_per_round,
                   inner_lr=args.inner_lr, inner_steps=args.inner_steps,
@@ -182,7 +191,8 @@ def main():
     p.add_argument('--local_epochs', type=int, default=3)
     p.add_argument('--local_lr', type=float, default=0.05)
     # 元学习
-    p.add_argument('--local_meta_steps', type=int, default=10)
+    p.add_argument('--local_meta_steps', type=int, default=30,
+                   help='meta 每客户端本地外层更新步数; 调到与 FedAvg 计算量大致对等')
     p.add_argument('--inner_lr', type=float, default=0.01)
     p.add_argument('--inner_steps', type=int, default=5)
     p.add_argument('--outer_lr', type=float, default=0.001)
@@ -200,7 +210,16 @@ def main():
     p.add_argument('--query_per_class', type=int, default=30)
     p.add_argument('--n_eval_episodes', type=int, default=5)
     # 模型/正则
-    p.add_argument('--channels', type=int, nargs='+', default=[64, 128, 256, 512])
+    p.add_argument('--backbone', type=str, default='resnet18',
+                   choices=['resnet12', 'resnet12_large', 'resnet18', 'resnet34'],
+                   help='FedAvg 骨干')
+    p.add_argument('--meta_backbone', type=str, default='resnet34',
+                   choices=['resnet12', 'resnet12_large', 'resnet18', 'resnet34'],
+                   help='MAML/Meta-SGD 骨干')
+    p.add_argument('--channels', type=int, nargs='+', default=[64, 128, 256, 512],
+                   help='resnet12 通道数 (仅在 --backbone resnet12 时使用)')
+    p.add_argument('--meta_channels', type=int, nargs='+', default=[64, 128, 256, 512],
+                   help='resnet12 meta 通道数 (仅在 --meta_backbone resnet12 时使用)')
     p.add_argument('--drop_rate', type=float, default=0.1)
     p.add_argument('--weight_decay', type=float, default=5e-4)
     p.add_argument('--seed', type=int, default=42)

@@ -33,7 +33,8 @@ python train_cifar_fed_compare.py \
     --k_shot_eval 5 \
     --query_per_class 30 \
     --n_eval_episodes 5 \
-    --channels 64 128 256 512 \
+    --backbone resnet18 \
+    --meta_backbone resnet34 \
     --drop_rate 0.1 \
     --weight_decay 5e-4 \
     --first_order \

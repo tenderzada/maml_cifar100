@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import autograd
+from torch.func import functional_call
 import numpy as np
 from copy import deepcopy
 from typing import List, Dict, Optional
