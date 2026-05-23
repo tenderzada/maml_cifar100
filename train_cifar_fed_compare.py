@@ -173,6 +173,13 @@ def main():
     p.add_argument('--download', action='store_true', default=False,
                    help='数据不存在时才下载; 服务器已有数据请勿开启')
     p.add_argument('--save_dir', type=str, default='./results')
+    p.add_argument('--methods', nargs='+', default=['fedavg', 'maml', 'metasgd'],
+                   choices=['fedavg', 'maml', 'metasgd'],
+                   help='本次运行哪些方法; 跳过 fedavg 时需 --fedavg_history')
+    p.add_argument('--fedavg_history', type=str, default=None,
+                   help='已保存的 FedAvg history JSON 路径; 跳过 fedavg 时加载')
+    p.add_argument('--save_tag', type=str, default='',
+                   help='保存文件名后缀, 便于区分不同 run')
     p.add_argument('--num_classes', type=int, default=20)
     p.add_argument('--num_clients', type=int, default=10)
     p.add_argument('--clients_per_round', type=int, default=5)
@@ -254,21 +261,52 @@ def main():
     print(f"Eval episodes: {len(episodes)}")
 
     history = {}
-    history['FedAvg'], fedavg_model = run_fedavg(args, fed, episodes, device)
+    fedavg_model = None
+    tag = f"_{args.save_tag}" if args.save_tag else ''
+
+    if 'fedavg' in args.methods:
+        history['FedAvg'], fedavg_model = run_fedavg(args, fed, episodes, device)
+        # 保存 FedAvg 检查点 + 单独 history (供后续只调 meta 时复用)
+        fa_ckpt = os.path.join(args.save_dir, f"fedavg{tag}.pt")
+        fa_hist = os.path.join(args.save_dir, f"fedavg{tag}_history.json")
+        torch.save({'state_dict': fedavg_model.state_dict(),
+                    'args': vars(args)}, fa_ckpt)
+        with open(fa_hist, 'w') as f:
+            json.dump({'args': vars(args), 'history': history['FedAvg']},
+                      f, indent=2)
+        print(f"FedAvg checkpoint -> {fa_ckpt}")
+        print(f"FedAvg history    -> {fa_hist}")
+    elif args.fedavg_history:
+        with open(args.fedavg_history, 'r') as f:
+            history['FedAvg'] = json.load(f)['history']
+        print(f"Loaded FedAvg history from: {args.fedavg_history}")
+    else:
+        print("[WARN] FedAvg not run and no --fedavg_history given; "
+              "plot will be missing FedAvg curve")
+
     warm = fedavg_model if args.warm_start_meta else None
-    history['FedAvg+MAML'] = run_meta(args, fed, episodes, device, 'maml',
-                                      warm_start_model=warm)
-    history['FedAvg+Meta-SGD'] = run_meta(args, fed, episodes, device, 'metasgd',
+
+    if 'maml' in args.methods:
+        history['FedAvg+MAML'] = run_meta(args, fed, episodes, device, 'maml',
                                           warm_start_model=warm)
+    if 'metasgd' in args.methods:
+        history['FedAvg+Meta-SGD'] = run_meta(args, fed, episodes, device,
+                                              'metasgd', warm_start_model=warm)
+
+    # 排序输出方便阅读
+    ordered = {k: history[k] for k in
+               ['FedAvg', 'FedAvg+MAML', 'FedAvg+Meta-SGD'] if k in history}
 
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    prefix = f"cifar_fed_compare_{args.num_classes}cls_{ts}"
+    methods_tag = '_'.join(args.methods)
+    prefix = f"cifar_fed_compare_{args.num_classes}cls_{methods_tag}{tag}_{ts}"
     json_path = os.path.join(args.save_dir, f"{prefix}.json")
     with open(json_path, 'w') as f:
-        json.dump({'args': vars(args), 'history': history}, f, indent=2)
-    print(f"\nHistory saved to: {json_path}")
+        json.dump({'args': vars(args), 'history': ordered}, f, indent=2)
+    print(f"\nCombined history -> {json_path}")
 
-    plot_fed_comparison(history, args.save_dir, prefix)
+    if ordered:
+        plot_fed_comparison(ordered, args.save_dir, prefix)
 
     print('\n' + '=' * 60 + '\nFinal (last round) test accuracy:')
     for m, h in history.items():
